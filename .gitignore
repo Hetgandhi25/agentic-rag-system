@@ -31,5 +31,10 @@ db/
 # MacOS
 .DS_Store
 
+# Storage & Test Artifacts
+storage/
+sample_test.pdf
+sample.pdf
+
 # User generated
 assets/demo_local.png
