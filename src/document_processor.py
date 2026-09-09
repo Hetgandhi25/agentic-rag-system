@@ -20,7 +20,12 @@ def get_db() -> Chroma:
 def process_pdf(file_path: str):
     """Load, chunk, and index a PDF into the ChromaDB vector store."""
     if os.path.exists(CHROMA_DB_PATH):
-        shutil.rmtree(CHROMA_DB_PATH)
+        try:
+            shutil.rmtree(CHROMA_DB_PATH, ignore_errors=True)
+        except Exception:
+            pass
+
+    os.makedirs(CHROMA_DB_PATH, exist_ok=True)
 
     loader = PyPDFLoader(file_path)
     docs = loader.load()
@@ -34,4 +39,7 @@ def process_pdf(file_path: str):
 def clear_database():
     """Delete the current ChromaDB vector store."""
     if os.path.exists(CHROMA_DB_PATH):
-        shutil.rmtree(CHROMA_DB_PATH)
+        try:
+            shutil.rmtree(CHROMA_DB_PATH, ignore_errors=True)
+        except Exception:
+            pass

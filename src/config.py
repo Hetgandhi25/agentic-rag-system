@@ -3,8 +3,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Configuration variables
-CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "./chroma_db")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", os.path.join(BASE_DIR, "chroma_db"))
 MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "3"))
 
 # Ollama Models
