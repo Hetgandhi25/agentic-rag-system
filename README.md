@@ -46,8 +46,8 @@ stateDiagram-v2
 
 | Component | Technology | Purpose |
 | --- | --- | --- |
-| **Language Model** | Gemini 1.5 Pro | Complex reasoning, grading context, and generating the final answer. |
-| **Embeddings** | text-embedding-004 | Converting text chunks into vector embeddings. |
+| **Language Model** | Local Ollama (qwen3:8b) | Complex reasoning, grading context, and generating the final answer. |
+| **Embeddings** | nomic-embed-text (Ollama) | Converting text chunks into vector embeddings. |
 | **Vector Database** | ChromaDB | Local, persistent storage for document vectors. |
 | **Orchestration** | LangGraph | Managing the cyclic agent state and conditional routing. |
 | **Document Processing**| LangChain | Loading, splitting, and processing PDFs. |
@@ -96,7 +96,7 @@ agentic_rag_system/
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/yourusername/agentic-rag-system.git
+   git clone https://github.com/Hetgandhi25/agentic-rag-system.git
    cd agentic-rag-system
    ```
 
@@ -112,10 +112,12 @@ agentic_rag_system/
    ```
 
 ## Environment Variables
-Create a `.env` file in the root directory (use `.env.example` as a template) and add your Google Gemini API Key:
+Create a `.env` file in the root directory (use `.env.example` as a template) and configure your local Ollama endpoints:
 
 ```env
-GEMINI_API_KEY=your_gemini_api_key_here
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen3:8b
+EMBEDDING_MODEL=nomic-embed-text
 MAX_ITERATIONS=3
 ```
 
