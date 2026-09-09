@@ -101,20 +101,35 @@ def rewrite_query(state: GraphState) -> dict:
     return {"refined_query": refined}
 
 def generate(state: GraphState) -> dict:
-    """Generate the final answer grounded strictly in the validated context."""
+    """Generate the final answer grounded strictly in the validated context and conversation history."""
     print("\n--- [NODE: GENERATE] ---", flush=True)
     print("Generating final answer with qwen3:8b...", flush=True)
     llm = get_llm()
-    prompt = f"""You are a precise, helpful assistant. Answer the question using ONLY the provided context.
+
+    history_str = ""
+    chat_history = state.get("chat_history", [])
+    if chat_history:
+        history_lines = []
+        for q, a in chat_history[-3:]:
+            history_lines.append(f"User: {q}\nAssistant: {a}")
+        history_str = "\n\nPrevious Conversation History:\n" + "\n---\n".join(history_lines) + "\n"
+
+    prompt = f"""You are a precise, helpful assistant. Answer the question using ONLY the provided context and conversation history.
 If the context is insufficient for a complete answer, clearly state what is missing — do not hallucinate.
 
 Question: {state['question']}
-
+{history_str}
 Validated Context:
 {state['context']}
 
 Write a clear, structured answer grounded in the context above."""
 
     response = llm.invoke(prompt)
+    answer = extract_text(response)
     print("Generation complete.", flush=True)
-    return {"answer": extract_text(response)}
+
+    updated_history = list(chat_history) + [(state['question'], answer)]
+    return {
+        "answer": answer,
+        "chat_history": updated_history,
+    }

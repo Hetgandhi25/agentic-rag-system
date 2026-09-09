@@ -29,24 +29,32 @@ def ui_process_pdf(file):
             gr.update(interactive=False),
         )
 
+_ui_chat_history = []
+
 def ui_clear_pdf():
-    """Gradio handler for clearing the database."""
+    """Gradio handler for clearing the database and chat history."""
+    global _ui_chat_history
+    _ui_chat_history = []
     clear_database()
     return (
         None,
-        gr.update(value="🗑️ Document cleared. Upload a new PDF to continue."),
+        gr.update(value="🗑️ Document and chat history cleared. Upload a new PDF to continue."),
         gr.update(interactive=False),
+        gr.update(value="*No conversation history yet.*")
     )
 
 def ui_ask_question(question):
-    """Gradio handler for executing the RAG flow."""
+    """Gradio handler for executing the RAG flow with persistent conversation memory."""
+    global _ui_chat_history
+
     if not question or not question.strip():
-        return gr.update(value=""), gr.update(value="*Ask a question to get started.*")
+        return gr.update(value=""), gr.update(value="*Ask a question to get started.*"), gr.update()
 
     if not is_vectorstore_ready():
         return (
             gr.update(value="⚠️ No document loaded. Upload and process a PDF first."),
             gr.update(value=""),
+            gr.update(value="*No conversation history yet.*")
         )
 
     try:
@@ -58,22 +66,31 @@ def ui_ask_question(question):
             "answer": "",
             "iterations": 0,
             "reflection_log": [],
+            "chat_history": _ui_chat_history,
         })
 
         reflection_log = result.get("reflection_log", [])
         iterations = result.get("iterations", 0)
         answer = result.get("answer", "No answer was generated.")
+        _ui_chat_history = result.get("chat_history", [])
 
         separator = "\n" + "─" * 60 + "\n"
         log_text = f"Total retrieval iterations: {iterations}\n" + separator
         log_text += separator.join(reflection_log) if reflection_log else "No reflection data."
 
-        return gr.update(value=log_text), gr.update(value=answer)
+        history_md = "### 📜 Past Questions & Answers\n"
+        for idx, (q, a) in enumerate(_ui_chat_history, 1):
+            history_md += f"**Turn {idx}: Q: {q}**\n\n> {a}\n\n---\n"
+
+        return gr.update(value=log_text), gr.update(value=answer), gr.update(value=history_md)
 
     except Exception as e:
+        print("\n❌ [ERROR IN UI_ASK_QUESTION]:")
+        traceback.print_exc()
         return (
             gr.update(value=f"❌ Error during inference: {str(e)}"),
             gr.update(value=""),
+            gr.update()
         )
 
 def ui_clear_question():
@@ -155,9 +172,12 @@ def create_ui():
         gr.Markdown("### 📝 Answer")
         answer_box = gr.Markdown(value="*Ask a question to get started.*")
 
+        with gr.Accordion("📜 Conversation History (Persisted Chat Memory)", open=False):
+            history_box = gr.Markdown(value="*No conversation history yet.*")
+
         proc_btn.click(fn=ui_process_pdf, inputs=[file_input], outputs=[status_box, ask_btn])
-        clear_pdf_btn.click(fn=ui_clear_pdf, outputs=[file_input, status_box, ask_btn])
-        ask_btn.click(fn=ui_ask_question, inputs=[q_input], outputs=[reflection_log_box, answer_box])
+        clear_pdf_btn.click(fn=ui_clear_pdf, outputs=[file_input, status_box, ask_btn, history_box])
+        ask_btn.click(fn=ui_ask_question, inputs=[q_input], outputs=[reflection_log_box, answer_box, history_box])
         clear_q_btn.click(fn=ui_clear_question, outputs=[q_input, reflection_log_box, answer_box])
 
     return demo
