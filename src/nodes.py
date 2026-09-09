@@ -1,4 +1,4 @@
-from langchain_community.chat_models import ChatOllama
+from langchain_ollama import ChatOllama
 from src.state import GraphState
 from src.config import OLLAMA_MODEL, OLLAMA_BASE_URL
 from src.document_processor import get_db
