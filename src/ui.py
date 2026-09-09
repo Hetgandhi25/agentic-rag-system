@@ -1,12 +1,22 @@
 import gradio as gr
 import os
-from src.document_processor import process_pdf, clear_database, get_db, is_vectorstore_ready
+import traceback
+from src.document_processor import (
+    process_pdf,
+    clear_database,
+    get_db,
+    is_vectorstore_ready,
+    load_chat_history,
+    save_chat_history,
+    load_document_metadata,
+)
 from src.graph import app
 
-import traceback
+_ui_chat_history = load_chat_history()
 
 def ui_process_pdf(file):
     """Gradio handler for PDF processing."""
+    global _ui_chat_history
     if file is None:
         return (
             gr.update(value="⚠️ No file selected. Please upload a PDF first."),
@@ -16,6 +26,7 @@ def ui_process_pdf(file):
         file_path = file if isinstance(file, str) else file.name
         print(f"\n>>> [UI ACTION] User clicked Process for file: {file_path}")
         num_chunks, num_pages = process_pdf(file_path)
+        _ui_chat_history = []
 
         return (
             gr.update(value=f"✅ Ready — {num_chunks} chunks indexed from {num_pages} pages."),
@@ -28,8 +39,6 @@ def ui_process_pdf(file):
             gr.update(value=f"❌ Processing failed: {str(e)}"),
             gr.update(interactive=False),
         )
-
-_ui_chat_history = []
 
 def ui_clear_pdf():
     """Gradio handler for clearing the database and chat history."""
@@ -46,6 +55,7 @@ def ui_clear_pdf():
 def ui_ask_question(question):
     """Gradio handler for executing the RAG flow with persistent conversation memory."""
     global _ui_chat_history
+    _ui_chat_history = load_chat_history()
 
     if not question or not question.strip():
         return gr.update(value=""), gr.update(value="*Ask a question to get started.*"), gr.update()
@@ -73,6 +83,7 @@ def ui_ask_question(question):
         iterations = result.get("iterations", 0)
         answer = result.get("answer", "No answer was generated.")
         _ui_chat_history = result.get("chat_history", [])
+        save_chat_history(_ui_chat_history)
 
         separator = "\n" + "─" * 60 + "\n"
         log_text = f"Total retrieval iterations: {iterations}\n" + separator

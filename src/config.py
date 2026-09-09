@@ -5,7 +5,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", os.path.join(BASE_DIR, "chroma_db"))
+STORAGE_DIR = os.getenv("STORAGE_DIR", os.path.join(BASE_DIR, "storage"))
+VECTOR_STORE_FILE = os.path.join(STORAGE_DIR, "vector_store.json")
+CHAT_HISTORY_FILE = os.path.join(STORAGE_DIR, "chat_history.json")
+METADATA_FILE = os.path.join(STORAGE_DIR, "metadata.json")
 MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "3"))
 
 def detect_ollama_url():
