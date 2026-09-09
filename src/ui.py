@@ -1,6 +1,6 @@
 import gradio as gr
 import os
-from src.document_processor import process_pdf, clear_database, get_db, _vectorstore
+from src.document_processor import process_pdf, clear_database, get_db, is_vectorstore_ready
 from src.graph import app
 
 import traceback
@@ -43,7 +43,7 @@ def ui_ask_question(question):
     if not question or not question.strip():
         return gr.update(value=""), gr.update(value="*Ask a question to get started.*")
 
-    if _vectorstore is None:
+    if not is_vectorstore_ready():
         return (
             gr.update(value="⚠️ No document loaded. Upload and process a PDF first."),
             gr.update(value=""),

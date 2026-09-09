@@ -54,5 +54,10 @@ def process_pdf(file_path: str):
 def clear_database():
     """Clear the in-memory vector store."""
     global _vectorstore
-    print("[PDF PROCESSOR] Clearing in-memory vector store.")
+    print("[PDF PROCESSOR] Clearing in-memory vector store.", flush=True)
     _vectorstore = None
+
+def is_vectorstore_ready() -> bool:
+    """Dynamically check if vector store has been initialized with documents."""
+    global _vectorstore
+    return _vectorstore is not None
