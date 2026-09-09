@@ -3,6 +3,8 @@ import os
 from src.document_processor import process_pdf, clear_database, get_db, _vectorstore
 from src.graph import app
 
+import traceback
+
 def ui_process_pdf(file):
     """Gradio handler for PDF processing."""
     if file is None:
@@ -12,6 +14,7 @@ def ui_process_pdf(file):
         )
     try:
         file_path = file if isinstance(file, str) else file.name
+        print(f"\n>>> [UI ACTION] User clicked Process for file: {file_path}")
         num_chunks, num_pages = process_pdf(file_path)
 
         return (
@@ -19,6 +22,8 @@ def ui_process_pdf(file):
             gr.update(interactive=True),
         )
     except Exception as e:
+        print("\n❌ [ERROR IN UI_PROCESS_PDF]:")
+        traceback.print_exc()
         return (
             gr.update(value=f"❌ Processing failed: {str(e)}"),
             gr.update(interactive=False),
