@@ -1,8 +1,7 @@
 import gradio as gr
 import os
-from src.document_processor import process_pdf, clear_database
+from src.document_processor import process_pdf, clear_database, get_db, _vectorstore
 from src.graph import app
-from src.config import CHROMA_DB_PATH
 
 def ui_process_pdf(file):
     """Gradio handler for PDF processing."""
@@ -39,7 +38,7 @@ def ui_ask_question(question):
     if not question or not question.strip():
         return gr.update(value=""), gr.update(value="*Ask a question to get started.*")
 
-    if not os.path.exists(CHROMA_DB_PATH):
+    if _vectorstore is None:
         return (
             gr.update(value="⚠️ No document loaded. Upload and process a PDF first."),
             gr.update(value=""),
