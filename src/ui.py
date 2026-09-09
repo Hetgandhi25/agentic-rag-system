@@ -446,7 +446,6 @@ def create_ui():
                         value=init_chatbot_data,
                         label="Interactive Chat History",
                         height=280,
-                        show_copy_button=True,
                     )
                     history_md = gr.Markdown(value=init_history_md)
 
