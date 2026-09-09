@@ -3,12 +3,15 @@ from src.state import GraphState
 from src.config import OLLAMA_MODEL, OLLAMA_BASE_URL
 from src.document_processor import get_db
 
-def get_llm():
-    return ChatOllama(
-        model=OLLAMA_MODEL,
-        base_url=OLLAMA_BASE_URL,
-        temperature=0, # Deterministic grading
-    )
+def get_llm(num_predict: int = None):
+    kwargs = {
+        "model": OLLAMA_MODEL,
+        "base_url": OLLAMA_BASE_URL,
+        "temperature": 0, # Deterministic output
+    }
+    if num_predict:
+        kwargs["num_predict"] = num_predict
+    return ChatOllama(**kwargs)
 
 def extract_text(response) -> str:
     """Safely extract a plain string from an LLM response."""
@@ -46,7 +49,7 @@ def grade_retrieval(state: GraphState) -> dict:
     """LLM judges whether the retrieved context is relevant and sufficient."""
     print("\n--- [NODE: GRADE_RETRIEVAL] ---", flush=True)
     print("Evaluating context with qwen3:8b...", flush=True)
-    llm = get_llm()
+    llm = get_llm(num_predict=150) # Fast short-form grading
     prompt = f"""You are a strict retrieval quality judge for a RAG system.
 
 Your job: decide if the retrieved context is good enough to answer the question accurately.
