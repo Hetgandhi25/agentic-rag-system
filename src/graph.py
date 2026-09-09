@@ -9,16 +9,20 @@ def should_continue(state: GraphState) -> str:
     Route to 'rewrite' otherwise to refine the query and re-retrieve.
     """
     iterations = state.get("iterations", 0)
+    print(f"\n--- [ROUTER] ---")
     if iterations >= MAX_ITERATIONS:
-        return "generate"  # forced exit — generate with best context so far
+        print(f"Max iterations ({MAX_ITERATIONS}) reached. Forcing generation.")
+        return "generate"
 
     reflection = state.get("reflection", "")
     for line in reflection.splitlines():
         if line.strip().upper().startswith("VERDICT:"):
             if "YES" in line.upper():
+                print("Verdict was YES. Routing to generate.")
                 return "generate"
             break
 
+    print("Verdict was NO. Routing to rewrite_query.")
     return "rewrite"
 
 def build_graph():
