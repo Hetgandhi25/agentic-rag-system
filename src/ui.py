@@ -18,33 +18,28 @@ _ui_chat_history = load_chat_history()
 
 
 def format_doc_status_html(status_type: str, message: str, chunks: int = 0, pages: int = 0, filename: str = "") -> str:
-    """Renders document status card matching Figma reference."""
+    """Renders document status card matching SaaS UI standards."""
     if status_type == "ready":
-        display_name = filename if filename else "1706.03762v7.pdf"
+        display_name = filename if filename else "Document.pdf"
         return f"""
         <div class="status-success-card">
-            <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
-                <span style="font-size:1.1rem;">🟢</span>
-                <span style="font-weight:700;">Document Indexed Successfully</span>
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                <span style="font-size:1rem;">🟢</span>
+                <span style="font-weight:700;">Document Indexed</span>
             </div>
-            <div style="font-size:0.82rem; color:#15803d; margin-bottom:8px;">
-                <b>{chunks}</b> chunks created from <b>{pages}</b> pages
+            <div style="font-size:0.82rem; color:#15803d; margin-bottom:6px;">
+                <b>{display_name}</b> ({pages} pages, {chunks} chunks)
             </div>
-            <div style="height:6px; background:#bbf7d0; border-radius:3px; overflow:hidden;">
+            <div style="height:4px; background:#bbf7d0; border-radius:2px; overflow:hidden;">
                 <div style="width:100%; height:100%; background:#16a34a;"></div>
             </div>
-        </div>
-        <div style="display:flex; justify-content:space-between; margin-top:10px; font-size:0.8rem; color:#64748b;">
-            <span><b>Pages:</b> {pages}</span>
-            <span><b>Chunks:</b> {chunks}</span>
-            <span><b>Status:</b> <span class="verdict-yes">Ready</span></span>
         </div>
         """
     elif status_type == "error":
         return f"""
         <div class="status-error-card">
             <div style="display:flex; align-items:center; gap:8px;">
-                <span style="font-size:1.1rem;">❌</span>
+                <span style="font-size:1rem;">❌</span>
                 <span>{message}</span>
             </div>
         </div>
@@ -53,18 +48,18 @@ def format_doc_status_html(status_type: str, message: str, chunks: int = 0, page
         return """
         <div class="status-empty-card">
             <div style="display:flex; align-items:center; gap:8px; color:#64748b;">
-                <span style="font-size:1.1rem;">⚪</span>
-                <span>No document loaded. Upload a PDF to get started.</span>
+                <span style="font-size:1rem;">⚪</span>
+                <span>No document loaded. Upload a PDF to begin.</span>
             </div>
         </div>
         """
 
 
 def format_recent_conversations_html(history: list) -> str:
-    """Renders recent conversation list for the left dark sidebar."""
+    """Renders recent conversation list for the left sidebar."""
     if not history:
         return """
-        <div style="font-size:0.82rem; color:#64748b; padding:8px 12px;">
+        <div style="font-size:0.8rem; color:#64748b; padding:6px 10px;">
             No recent questions yet.
         </div>
         """
@@ -75,16 +70,15 @@ def format_recent_conversations_html(history: list) -> str:
         html += f"""
         <div class="recent-item">
             <span>💬 {display_q}</span>
-            <span class="recent-time">Recent</span>
         </div>
         """
     return html
 
 
 def format_reflection_markdown(reflection_log: list, iterations: int) -> str:
-    """Formats self-reflection trace into styled Markdown cards."""
+    """Formats self-reflection trace into clean, compact Markdown cards."""
     if not reflection_log:
-        return "*Self-reflection log will appear here after you ask a question.*"
+        return "*Self-reflection log will appear here after asking a question.*"
 
     md = f"**Total retrieval iterations:** `{iterations}`\n\n"
 
@@ -108,13 +102,13 @@ def format_reflection_markdown(reflection_log: list, iterations: int) -> str:
 
         verdict_badge = '🟢 `VERDICT: YES`' if verdict.upper() == "YES" else '🔴 `VERDICT: NO`'
 
-        md += f"### {iter_title} &nbsp; {verdict_badge}\n\n"
+        md += f"#### {iter_title} &nbsp; {verdict_badge}\n"
         if reason:
-            md += f"**Reason:** {reason}\n\n"
+            md += f"- **Reason:** {reason}\n"
         if refined_q and refined_q.upper() != "NONE":
-            md += f"**Refined Query:** `{refined_q}`\n\n"
+            md += f"- **Refined Query:** `{refined_q}`\n"
 
-        md += "---\n"
+        md += "\n---\n"
 
     return md
 
@@ -122,18 +116,17 @@ def format_reflection_markdown(reflection_log: list, iterations: int) -> str:
 def format_history_markdown(history: list) -> str:
     """Formats chat history into clean multi-turn dialogue."""
     if not history:
-        return "*No conversation history recorded yet.*"
+        return ""
 
     history_md = ""
     for idx, (q, a) in enumerate(history, 1):
-        history_md += f"### 👤 User (Turn {idx})\n{q}\n\n"
-        history_md += f"### 🤖 Assistant Response\n{a}\n\n"
+        history_md += f"### 👤 User\n{q}\n\n"
+        history_md += f"### 🤖 Assistant\n{a}\n\n"
         history_md += """
 <div class="sources-container">
-    <div style="font-weight:700; font-size:0.85rem; color:#475569; margin-bottom:6px;">⚙️ Sources from document</div>
+    <div style="font-weight:700; font-size:0.8rem; color:#475569; margin-bottom:4px;">⚙️ Sources from document</div>
     <span class="source-chip">Page 2 <span class="source-score">Relevance: 0.92</span></span>
     <span class="source-chip">Page 3 <span class="source-score">Relevance: 0.87</span></span>
-    <span class="source-chip">Page 5 <span class="source-score">Relevance: 0.83</span></span>
 </div>
 ---\n
 """
@@ -178,7 +171,7 @@ def ui_clear_pdf():
         format_doc_status_html("none", "No document loaded."),
         gr.update(interactive=False),
         [],
-        "*No conversation history recorded yet.*",
+        "",
         format_recent_conversations_html([]),
     )
 
@@ -192,7 +185,7 @@ def ui_clear_history():
             os.remove(CHAT_HISTORY_FILE)
         except Exception:
             pass
-    return [], "*No conversation history recorded yet.*", format_recent_conversations_html([])
+    return [], "", format_recent_conversations_html([])
 
 
 def ui_ask_question(question):
@@ -245,11 +238,9 @@ def ui_ask_question(question):
 {answer}
 
 <div class="sources-container">
-    <div style="font-weight:700; font-size:0.85rem; color:#475569; margin-bottom:6px;">⚙️ Sources from document</div>
+    <div style="font-weight:700; font-size:0.82rem; color:#475569; margin-bottom:4px;">⚙️ Sources from document</div>
     <span class="source-chip">Page 2 <span class="source-score">Relevance: 0.92</span></span>
     <span class="source-chip">Page 3 <span class="source-score">Relevance: 0.87</span></span>
-    <span class="source-chip">Page 5 <span class="source-score">Relevance: 0.83</span></span>
-    <span class="source-chip">Page 7 <span class="source-score">Relevance: 0.78</span></span>
 </div>
 """
 
@@ -300,7 +291,7 @@ def create_ui():
     .top-nav {
         background-color: #0f172a;
         border-bottom: 1px solid #1e293b;
-        padding: 14px 28px;
+        padding: 12px 24px;
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -309,8 +300,8 @@ def create_ui():
     .top-badge {
         background: #1e293b;
         color: #cbd5e1;
-        font-size: 0.78rem;
-        padding: 5px 12px;
+        font-size: 0.76rem;
+        padding: 4px 10px;
         border-radius: 20px;
         border: 1px solid #334155;
         font-weight: 500;
@@ -318,121 +309,96 @@ def create_ui():
 
     .left-sidebar {
         background-color: #0f172a !important;
-        padding: 20px 14px !important;
+        padding: 18px 12px !important;
         border-right: 1px solid #1e293b !important;
     }
 
     .nav-item {
-        padding: 10px 16px;
-        border-radius: 10px;
+        padding: 9px 14px;
+        border-radius: 8px;
         color: #94a3b8;
         font-weight: 600;
-        font-size: 0.9rem;
-        margin-bottom: 6px;
+        font-size: 0.88rem;
+        margin-bottom: 4px;
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 8px;
     }
 
     .nav-item-active {
         background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
         color: #ffffff !important;
-        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35);
+        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
     }
 
     .recent-title {
         color: #64748b;
-        font-size: 0.75rem;
+        font-size: 0.72rem;
         text-transform: uppercase;
         letter-spacing: 0.05em;
         font-weight: 700;
-        margin: 24px 0 10px 8px;
+        margin: 20px 0 8px 6px;
     }
 
     .recent-item {
         color: #cbd5e1;
-        font-size: 0.84rem;
-        padding: 8px 12px;
-        border-radius: 8px;
-        margin-bottom: 4px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    .recent-item:hover {
-        background: #1e293b;
-    }
-
-    .recent-time {
-        color: #64748b;
-        font-size: 0.72rem;
+        font-size: 0.82rem;
+        padding: 6px 10px;
+        border-radius: 6px;
+        margin-bottom: 3px;
     }
 
     .sidebar-bottom-card {
         background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
         border: 1px solid #4338ca;
-        border-radius: 14px;
-        padding: 16px;
-        margin-top: 40px;
+        border-radius: 12px;
+        padding: 14px;
+        margin-top: 30px;
         text-align: center;
         color: #ffffff;
     }
 
     .main-chat-area {
         background-color: #f8fafc !important;
-        padding: 24px !important;
+        padding: 20px !important;
     }
 
-    .hero-banner {
-        background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #312e81 100%);
-        border-radius: 16px;
-        padding: 24px 32px;
-        color: #ffffff;
-        margin-bottom: 20px;
-        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.3);
-    }
-
-    .hero-banner h2 {
-        font-size: 1.55rem !important;
-        font-weight: 800 !important;
-        color: #ffffff !important;
-        margin-bottom: 8px !important;
-    }
-
-    .hero-banner p {
-        font-size: 0.95rem !important;
-        color: #cbd5e1 !important;
-        margin-bottom: 0 !important;
-        line-height: 1.5;
+    .compact-header {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 14px 20px;
+        margin-bottom: 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
 
     .answer-card-styled {
         background: #ffffff;
         border: 1px solid #e2e8f0;
-        border-radius: 14px;
-        padding: 24px;
-        min-height: 160px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+        border-radius: 12px;
+        padding: 20px;
+        min-height: 150px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
     }
 
     .sources-container {
         background: #f1f5f9;
         border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        padding: 12px 16px;
-        margin-top: 16px;
+        border-radius: 8px;
+        padding: 10px 14px;
+        margin-top: 14px;
     }
 
     .source-chip {
         background: #ffffff;
         border: 1px solid #cbd5e1;
-        border-radius: 8px;
-        padding: 6px 12px;
-        font-size: 0.8rem;
+        border-radius: 6px;
+        padding: 4px 10px;
+        font-size: 0.78rem;
         display: inline-block;
-        margin-right: 8px;
-        margin-bottom: 6px;
+        margin-right: 6px;
         color: #334155;
     }
 
@@ -440,14 +406,14 @@ def create_ui():
         background: #dcfce7;
         color: #166534;
         font-weight: 700;
-        padding: 2px 6px;
+        padding: 1px 5px;
         border-radius: 4px;
-        font-size: 0.72rem;
+        font-size: 0.7rem;
     }
 
     .right-sidebar {
         background-color: #f8fafc !important;
-        padding: 24px 16px !important;
+        padding: 20px 14px !important;
         border-left: 1px solid #e2e8f0 !important;
     }
 
@@ -456,60 +422,41 @@ def create_ui():
         color: #ffffff !important;
         font-weight: 600 !important;
         border: none !important;
-        border-radius: 10px !important;
-        padding: 10px 18px !important;
-        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25) !important;
+        border-radius: 8px !important;
+        padding: 8px 16px !important;
     }
 
     .status-success-card {
         background: #f0fdf4;
         border: 1px solid #bbf7d0;
-        border-radius: 10px;
-        padding: 12px 14px;
+        border-radius: 8px;
+        padding: 10px 12px;
         color: #166534;
     }
 
     .status-empty-card {
         background: #f8fafc;
         border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        padding: 12px 14px;
+        border-radius: 8px;
+        padding: 10px 12px;
         color: #64748b;
     }
 
     .status-error-card {
         background: #fef2f2;
         border: 1px solid #fecaca;
-        border-radius: 10px;
-        padding: 12px 14px;
+        border-radius: 8px;
+        padding: 10px 12px;
         color: #991b1b;
-    }
-
-    .verdict-yes {
-        background: #dcfce7;
-        color: #15803d;
-        font-weight: 700;
-        padding: 2px 8px;
-        border-radius: 6px;
-        font-size: 0.78rem;
-    }
-
-    .verdict-no {
-        background: #fee2e2;
-        color: #b91c1c;
-        font-weight: 700;
-        padding: 2px 8px;
-        border-radius: 6px;
-        font-size: 0.78rem;
     }
 
     .tip-item {
         display: flex;
         align-items: center;
-        gap: 8px;
-        font-size: 0.84rem;
+        gap: 6px;
+        font-size: 0.82rem;
         color: #475569;
-        margin-bottom: 8px;
+        margin-bottom: 6px;
     }
     """
 
@@ -519,32 +466,31 @@ def create_ui():
         css=custom_css,
     ) as demo:
 
-        # 1. Top Header Navbar
+        # 1. App Header Navbar
         gr.HTML(
             """
             <div class="top-nav">
                 <div style="display:flex; align-items:center;">
-                    <div style="background:#4f46e5; width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center; color:white; font-size:1.2rem; font-weight:800; margin-right:12px;">📑</div>
+                    <div style="background:#4f46e5; width:34px; height:34px; border-radius:8px; display:flex; align-items:center; justify-content:center; color:white; font-size:1.1rem; font-weight:800; margin-right:10px;">📑</div>
                     <div>
-                        <span style="font-size:1.25rem; font-weight:800; color:#ffffff;">Self-Reflective Agentic RAG</span>
-                        <span style="font-size:0.84rem; color:#94a3b8; margin-left:12px;">Upload PDFs. Get grounded answers with retrieval grading, query refinement and self-correction.</span>
+                        <span style="font-size:1.15rem; font-weight:800; color:#ffffff;">Self-Reflective Agentic RAG</span>
+                        <span style="font-size:0.8rem; color:#94a3b8; margin-left:10px;">Grounded document QA with retrieval grading & query refinement</span>
                     </div>
                 </div>
-                <div class="top-nav-badges">
+                <div style="display:flex; gap:8px; align-items:center;">
                     <span class="top-badge">🧠 Ollama (qwen3:8b)</span>
                     <span class="top-badge">📐 nomic-embed-text</span>
                     <span class="top-badge">⚡ NVIDIA DGX Spark</span>
-                    <div style="background:#312e81; color:#e0e7ff; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.85rem; margin-left:8px;">H</div>
                 </div>
             </div>
             """
         )
 
-        # 2. Main 3-Column Interface Layout
+        # 2. Main 3-Column Interface Shell
         with gr.Row(equal_height=False):
             
-            # COLUMN 1: Dark Navy Left Sidebar
-            with gr.Column(scale=1, min_width=240, elem_classes=["left-sidebar"]):
+            # COLUMN 1: Fixed Left Sidebar
+            with gr.Column(scale=1, min_width=220, elem_classes=["left-sidebar"]):
                 gr.HTML(
                     """
                     <div class="nav-item nav-item-active">💬 Chat & Ask</div>
@@ -554,40 +500,44 @@ def create_ui():
                     """
                 )
 
-                # Recent conversations list (Dynamic)
                 recent_box = gr.HTML(value=init_recent_html)
 
                 gr.HTML(
                     """
                     <div class="sidebar-bottom-card">
-                        <div style="font-size:1.3rem; margin-bottom:4px;">✨</div>
-                        <div style="font-weight:700; font-size:0.9rem; margin-bottom:4px;">AI-Powered Document Intelligence</div>
-                        <div style="font-size:0.75rem; color:#a5b4fc;">Grounded • Reliable • Transparent</div>
+                        <div style="font-size:1.1rem; margin-bottom:2px;">✨</div>
+                        <div style="font-weight:700; font-size:0.85rem; margin-bottom:2px;">Document Intelligence</div>
+                        <div style="font-size:0.72rem; color:#a5b4fc;">Grounded • Reliable</div>
                     </div>
                     """
                 )
 
-            # COLUMN 2: Main Middle Chat Area
+            # COLUMN 2: Main Workspace (Center)
             with gr.Column(scale=3, min_width=480, elem_classes=["main-chat-area"]):
                 
-                # Hero Welcome Banner
+                # Compact Workspace Header
                 gr.HTML(
                     """
-                    <div class="hero-banner">
-                        <h2>Welcome to Self-Reflective Agentic RAG</h2>
-                        <p>Upload a research paper and ask questions. The system retrieves relevant context, grades it, refines your query if needed, and generates a grounded answer.</p>
+                    <div class="compact-header">
+                        <div>
+                            <span style="font-weight:700; font-size:1rem; color:#0f172a;">💬 Grounded Q&A Workspace</span>
+                            <span style="font-size:0.82rem; color:#64748b; margin-left:8px;">Ask questions grounded strictly in your document context</span>
+                        </div>
+                        <div>
+                            <span class="source-chip" style="background:#e0e7ff; color:#3730a3; font-weight:600;">Active Session</span>
+                        </div>
                     </div>
                     """
                 )
 
-                # Answer Display Card
+                # Grounded Answer Display
                 gr.Markdown("### 📝 Grounded Answer")
                 answer_box = gr.Markdown(
-                    value="*Ask a question below to generate a grounded response.*",
+                    value="*Upload a document and ask a question to generate a grounded response.*",
                     elem_classes=["answer-card-styled"],
                 )
 
-                # Message Actions Bar
+                # Action Bar
                 with gr.Row():
                     gr.Button("📋 Copy", variant="secondary", scale=1)
                     gr.Button("🔄 Regenerate", variant="secondary", scale=1)
@@ -596,10 +546,10 @@ def create_ui():
 
                 gr.Markdown("---")
 
-                # Follow-up Question Input Bar
+                # Question Input Composer (Bottom)
                 q_input = gr.Textbox(
                     label="",
-                    placeholder="Ask a follow-up question... (e.g., Explain Figure 1, What are the limitations?, How does it compare to RNNs?)",
+                    placeholder="Ask a question about the document... (e.g., Explain the main proposed architecture)",
                     lines=2,
                 )
                 
@@ -613,14 +563,14 @@ def create_ui():
                     )
                     clear_q_btn = gr.Button("✖ Clear", variant="secondary", scale=1)
 
-            # COLUMN 3: Right Document & Reflection Sidebar
-            with gr.Column(scale=1, min_width=320, elem_classes=["right-sidebar"]):
+            # COLUMN 3: Right Insights Panel
+            with gr.Column(scale=1, min_width=300, elem_classes=["right-sidebar"]):
                 
                 # Document Card
-                with gr.Group(elem_classes=["card-box"]):
+                with gr.Group():
                     gr.Markdown("### 📄 Document")
                     file_input = gr.File(
-                        label="Upload PDF File",
+                        label="Upload PDF Document",
                         file_types=[".pdf"],
                         file_count="single",
                     )
@@ -631,32 +581,31 @@ def create_ui():
                     
                     status_box = gr.HTML(value=init_status)
 
-                # Self-Reflection Log Accordion Card
-                with gr.Accordion("⚙️ Self-Reflection / Grading Log", open=True):
+                # Self-Reflection Log Panel
+                with gr.Accordion("⚙️ Self-Reflection & Retrieval Insights", open=True):
                     reflection_log_box = gr.Markdown(
                         value="*Self-reflection logs will appear here after you ask a question.*"
                     )
 
-                # Tips Card
-                with gr.Group(elem_classes=["card-box"]):
+                # Tips Panel
+                with gr.Group():
                     gr.HTML(
                         """
-                        <div class="card-header-title">💡 Tips for Best Results</div>
-                        <div class="tip-item"><span class="tip-icon">✔</span> Ask specific questions for precise retrieval</div>
-                        <div class="tip-item"><span class="tip-icon">✔</span> You can ask multi-turn follow-up questions</div>
-                        <div class="tip-item"><span class="tip-icon">✔</span> The system automatically refines unclear queries</div>
-                        <div class="tip-item"><span class="tip-icon">✔</span> All answers are strictly grounded in your document</div>
+                        <div style="font-weight:700; font-size:0.9rem; color:#0f172a; margin-bottom:8px;">💡 Tips for Best Results</div>
+                        <div class="tip-item"><span style="color:#16a34a;">✔</span> Ask specific questions for precise retrieval</div>
+                        <div class="tip-item"><span style="color:#16a34a;">✔</span> You can ask multi-turn follow-up questions</div>
+                        <div class="tip-item"><span style="color:#16a34a;">✔</span> Unclear queries are refined automatically</div>
+                        <div class="tip-item"><span style="color:#16a34a;">✔</span> Answers are strictly grounded in document</div>
                         """
                     )
 
-                # Session Controls
                 clear_hist_btn = gr.Button("💬 Clear History", variant="secondary")
 
                 with gr.Accordion("📜 Full Chat History Transcript", open=False):
                     history_chatbot = gr.Chatbot(
                         value=init_chatbot_data,
                         label="Chat Memory",
-                        height=240,
+                        height=220,
                     )
                     history_md = gr.Markdown(value=init_history_md)
 
@@ -689,5 +638,6 @@ def create_ui():
         )
 
     return demo
+
 
 
