@@ -27,15 +27,15 @@ def extract_text(response) -> str:
 
 def retrieve(state: GraphState) -> dict:
     """Retrieve top-k chunks using the current query."""
-    print("\n--- [NODE: RETRIEVE] ---")
+    print("\n--- [NODE: RETRIEVE] ---", flush=True)
     query = state.get("refined_query") or state["question"]
-    print(f"Searching ChromaDB for: '{query}'")
+    print(f"Searching vectorstore for: '{query}'", flush=True)
     db = get_db()
     docs = db.similarity_search(query, k=4)
     context = "\n\n".join(
         [f"[Chunk {i + 1}]:\n{d.page_content}" for i, d in enumerate(docs)]
     )
-    print(f"Retrieved {len(docs)} chunks.")
+    print(f"Retrieved {len(docs)} chunks.", flush=True)
     return {
         "context": context,
         "refined_query": query,
@@ -44,8 +44,8 @@ def retrieve(state: GraphState) -> dict:
 
 def grade_retrieval(state: GraphState) -> dict:
     """LLM judges whether the retrieved context is relevant and sufficient."""
-    print("\n--- [NODE: GRADE_RETRIEVAL] ---")
-    print("Evaluating context with qwen3:8b...")
+    print("\n--- [NODE: GRADE_RETRIEVAL] ---", flush=True)
+    print("Evaluating context with qwen3:8b...", flush=True)
     llm = get_llm()
     prompt = f"""You are a strict retrieval quality judge for a RAG system.
 
@@ -73,7 +73,7 @@ REFINED_QUERY: <a better, more specific search query to find the missing informa
 
     response = llm.invoke(prompt)
     content = extract_text(response)
-    print(f"Grading Result:\n{content}")
+    print(f"Grading Result:\n{content}", flush=True)
 
     log_entry = f"Iteration {state.get('iterations', 1)}\n{content}"
     reflection_log = list(state.get("reflection_log", [])) + [log_entry]
@@ -85,7 +85,7 @@ REFINED_QUERY: <a better, more specific search query to find the missing informa
 
 def rewrite_query(state: GraphState) -> dict:
     """Extract the REFINED_QUERY from the grader's output."""
-    print("\n--- [NODE: REWRITE_QUERY] ---")
+    print("\n--- [NODE: REWRITE_QUERY] ---", flush=True)
     reflection = state.get("reflection", "")
     refined = state["question"]  # safe fallback
 
@@ -97,13 +97,13 @@ def rewrite_query(state: GraphState) -> dict:
                 refined = candidate
                 break
 
-    print(f"New refined query: '{refined}'")
+    print(f"New refined query: '{refined}'", flush=True)
     return {"refined_query": refined}
 
 def generate(state: GraphState) -> dict:
     """Generate the final answer grounded strictly in the validated context."""
-    print("\n--- [NODE: GENERATE] ---")
-    print("Generating final answer with qwen3:8b...")
+    print("\n--- [NODE: GENERATE] ---", flush=True)
+    print("Generating final answer with qwen3:8b...", flush=True)
     llm = get_llm()
     prompt = f"""You are a precise, helpful assistant. Answer the question using ONLY the provided context.
 If the context is insufficient for a complete answer, clearly state what is missing — do not hallucinate.
@@ -116,5 +116,5 @@ Validated Context:
 Write a clear, structured answer grounded in the context above."""
 
     response = llm.invoke(prompt)
-    print("Generation complete.")
+    print("Generation complete.", flush=True)
     return {"answer": extract_text(response)}
