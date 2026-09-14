@@ -26,6 +26,53 @@ The system features a **production-ready architecture** with a **FastAPI backend
 | **Backend API** | FastAPI | High-performance async API for serving SSE streams and endpoints. |
 | **Frontend UI** | React + Vite | Fast, modern chat interface with robust state management. |
 
+## System Architecture
+
+### 1. High-Level Architecture
+```mermaid
+flowchart LR
+    subgraph Frontend [React Vite Frontend]
+        UI[Chat UI]
+        SSE[SSE Stream Receiver]
+    end
+
+    subgraph Backend [FastAPI Backend]
+        API[API Endpoints]
+        DB[(SQLite DB)]
+        Graph[LangGraph Engine]
+        
+        API <--> DB
+        API <--> Graph
+    end
+
+    subgraph External [Models & DBs]
+        LLM[vLLM / Qwen]
+        Embed[Ollama Embeddings]
+        Chroma[(ChromaDB)]
+    end
+
+    UI -->|HTTP Requests| API
+    API -->|SSE Token Stream| SSE
+    Graph <-->|Prompt / Completion| LLM
+    Graph <-->|Vector Search| Chroma
+    Graph <-->|Generate Embeddings| Embed
+```
+
+### 2. Agentic RAG Workflow (LangGraph)
+```mermaid
+flowchart TD
+    User([User Question]) --> Retrieve[Retrieve Chunks from Chroma]
+    Retrieve --> Grade{Grade Context (LLM)}
+    
+    Grade -- VERDICT: NO --> Rewrite[Rewrite Query (LLM)]
+    Rewrite --> Retrieve
+    
+    Grade -- VERDICT: YES --> Generate[Generate Answer (LLM)]
+    Generate --> Output([Stream Final Output])
+    
+    Grade -. MAX ITERATIONS REACHED .-> Generate
+```
+
 ## Project Structure
 
 ```text
