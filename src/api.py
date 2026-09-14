@@ -206,7 +206,7 @@ def get_sessions(db: DBSession = Depends(get_db)):
             "title": s.title,
             "document_id": s.document_id,
             "document_filename": doc_filename,
-            "document_deleted": s.document_id is None and s.title != "New Chat",
+            "document_deleted": s.document_id is None and s.title not in ["New Chat", "New Conversation"],
             "updated_at": s.updated_at.isoformat() if s.updated_at else None,
         })
     return {"sessions": result}
@@ -221,7 +221,7 @@ def create_session(req: CreateSessionRequest, db: DBSession = Depends(get_db)):
             raise HTTPException(status_code=404, detail="Document not found")
         doc_id = doc.id
 
-    session = Session(document_id=doc_id, title="New Chat")
+    session = Session(document_id=doc_id, title="New Conversation")
     db.add(session)
     db.commit()
     db.refresh(session)
@@ -385,10 +385,7 @@ def _stream_langgraph_to_queue(inputs: dict, event_queue: queue.Queue):
             for node, state_update in chunk.items():
                 final_state.update(state_update)
                 # Emit node-specific status events
-                if node == "analyze_query":
-                    intent = state_update.get("intent", "DOC_SPECIFIC")
-                    event_queue.put({"event": "status", "data": f"Classified intent: {intent}"})
-                elif node == "retrieve":
+                if node == "retrieve":
                     n_chunks = len(state_update.get("sources", []))
                     event_queue.put({"event": "status", "data": f"Retrieved {n_chunks} chunks from document"})
                 elif node == "grade_retrieval":
@@ -402,8 +399,6 @@ def _stream_langgraph_to_queue(inputs: dict, event_queue: queue.Queue):
                     event_queue.put({"event": "status", "data": f"Refining query: {refined[:80]}"})
                 elif node == "generate":
                     event_queue.put({"event": "status", "data": "Generating grounded answer..."})
-                elif node == "generate_conversational":
-                    event_queue.put({"event": "status", "data": "Generating conversational answer..."})
 
         event_queue.put({"event": "__done__", "data": final_state})
     except Exception as e:
@@ -449,10 +444,22 @@ async def chat_stream(req: ChatRequest, request: Request):
                 detail="This conversation's document has been deleted. New questions cannot be answered."
             )
 
-        # Update title from first question
-        if session.title == "New Chat":
-            session.title = question[:50] + ("..." if len(question) > 50 else "")
-            db.commit()
+        # Update title from first meaningful question in the background to avoid latency overhead
+        if session.title in ["New Chat", "New Conversation"]:
+            def update_title_bg(sess_id, q):
+                from src.title_utils import generate_title
+                nt = generate_title(q)
+                if nt not in ["New Chat", "New Conversation"]:
+                    bg_db = SessionLocal()
+                    try:
+                        s = bg_db.query(Session).filter(Session.id == sess_id).first()
+                        if s and s.title in ["New Chat", "New Conversation"]:
+                            s.title = nt
+                            bg_db.commit()
+                    finally:
+                        bg_db.close()
+            
+            threading.Thread(target=update_title_bg, args=(session.id, question), daemon=True).start()
 
         # Build chat history from prior messages (pair up user+ai turns)
         prev_messages = (
@@ -576,10 +583,6 @@ async def chat_stream(req: ChatRequest, request: Request):
         all_no = bool(reflection_log) and all(
             "VERDICT: NO" in entry.upper() for entry in reflection_log
         )
-        out_of_scope = bool(reflection_log) and any(
-            "VERDICT: OUT_OF_SCOPE" in entry.upper() for entry in reflection_log
-        )
-        clear_sources = all_no or out_of_scope
 
         if not answer:
             answer = (
@@ -598,8 +601,8 @@ async def chat_stream(req: ChatRequest, request: Request):
                 session_id=session_id,
                 role="ai",
                 content=answer,
-                # Only store sources if context was actually used
-                sources=sources if not clear_sources else [],
+                # Only store sources if context was actually used (not all-NO)
+                sources=sources if not all_no else [],
                 metrics=metrics,
             )
             save_db.add(ai_msg)
@@ -619,10 +622,10 @@ async def chat_stream(req: ChatRequest, request: Request):
             yield {"event": "log", "data": json.dumps(reflection_log)}
 
         # Only emit sources when context was actually used
-        if sources and not clear_sources:
+        if sources and not all_no:
             yield {"event": "sources", "data": json.dumps(sources)}
 
-        yield {"event": "all_no", "data": json.dumps(clear_sources)}
+        yield {"event": "all_no", "data": json.dumps(all_no)}
         yield {"event": "message_id", "data": ai_msg_id}
         yield {"event": "answer", "data": json.dumps(answer)}
         yield {"event": "metrics", "data": json.dumps(metrics)}

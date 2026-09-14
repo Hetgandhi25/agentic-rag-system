@@ -12,14 +12,16 @@ METADATA_FILE = os.path.join(STORAGE_DIR, "metadata.json")
 MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "3"))
 
 def detect_ollama_url():
-    """Detect working Ollama endpoint for local host."""
+    """Detect working Ollama endpoint for local host or Docker container."""
     env_url = os.getenv("OLLAMA_BASE_URL")
     if env_url:
         return env_url
 
     candidates = [
         "http://localhost:11434",
-        "http://127.0.0.1:11434"
+        "http://192.168.100.16:11434",
+        "http://172.17.0.1:11434",
+        "http://host.docker.internal:11434"
     ]
     for url in candidates:
         try:
@@ -29,12 +31,12 @@ def detect_ollama_url():
                 return url
         except Exception:
             continue
-    return "http://localhost:11434"
+    return "http://192.168.100.16:11434"
 
 OLLAMA_BASE_URL = detect_ollama_url()
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
 MODEL_PAI_BASE_URL = os.getenv("MODEL_PAI_BASE_URL", "http://192.168.100.10:8000/v1")
-MODEL_PAI_API_KEY = os.getenv("MODEL_PAI_API_KEY") or os.getenv("DEFAULT_API_KEY") or "dummy-key-for-local-testing"
+MODEL_PAI_API_KEY = os.getenv("MODEL_PAI_API_KEY", "dummy-key-for-local-testing")
 MODEL_PAI_MODEL = os.getenv("MODEL_PAI_MODEL", "qwen3.8-27b")
