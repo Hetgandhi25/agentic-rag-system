@@ -216,8 +216,11 @@ export default function ChatWorkspace({
                                 <div key={i} className="source-card">
                                   <div className="source-page">Page {src.page}</div>
                                   <div className="source-text">{src.text}</div>
-                                  <div className="source-score">
-                                    Relevance: {src.rel}
+                                  <div className="source-score" style={{
+                                    backgroundColor: src.is_broad ? 'rgba(59, 130, 246, 0.1)' : undefined,
+                                    color: src.is_broad ? '#3b82f6' : undefined
+                                  }}>
+                                    {src.is_broad ? 'Document Overview' : `Relevance: ${src.rel}`}
                                   </div>
                                 </div>
                               ))}

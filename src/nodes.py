@@ -168,7 +168,8 @@ def retrieve(state: GraphState) -> dict:
         sources.append({
             "page": page_num,
             "filename": doc.metadata.get("filename", "Unknown"),
-            "rel": "BROAD" if is_broad else f"{relevance:.2f}",
+            "rel": f"{relevance:.2f}",
+            "is_broad": is_broad,
             "text": doc.page_content.replace('\n', ' ').strip()[:150] + "...",
         })
 
