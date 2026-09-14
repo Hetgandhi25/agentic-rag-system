@@ -106,13 +106,21 @@ def analyze_query(state: GraphState) -> dict:
     llm = get_llm()
     query = state["question"]
     
-    prompt = f"""Classify the user's input into exactly one of these four categories:
+    history_str = ""
+    chat_history = state.get("chat_history", [])
+    if chat_history:
+        history_lines = []
+        for q, a in chat_history[-3:]:
+            history_lines.append(f"User: {q}\nAssistant: {a}")
+        history_str = "\nPrevious Conversation Context:\n" + "\n".join(history_lines) + "\n"
+
+    prompt = f"""Classify the user's latest input into exactly one of these four categories:
 1. CONVERSATIONAL: Simple greetings, pleasantries, or acknowledgments (e.g., "hi", "hello", "thanks", "okay").
 2. HISTORY: Questions specifically asking about previous messages in this chat (e.g., "what was my last question?", "summarize our conversation").
 3. DOC_SUMMARY: Requests for a broad overview or summary of the uploaded document (e.g., "tell me about this document", "summarize the pdf").
-4. DOC_SPECIFIC: Questions asking for facts, details, or specific information that should be searched for in the document.
-
-User Input: "{query}"
+4. DOC_SPECIFIC: Questions asking for facts, details, or specific information that should be searched for in the document (including follow-ups).
+{history_str}
+User's Latest Input: "{query}"
 
 Reply with ONLY ONE word (CONVERSATIONAL, HISTORY, DOC_SUMMARY, or DOC_SPECIFIC):"""
     
