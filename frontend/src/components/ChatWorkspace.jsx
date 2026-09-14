@@ -4,41 +4,10 @@ import {
   ThumbsUp, ThumbsDown, MessageSquare, Link, X, Lock
 } from 'lucide-react';
 
-// ─── Lightweight Markdown Renderer ──────────────────────────────────────────
-// Converts common markdown patterns to safe HTML.
-function renderMarkdown(text) {
-  if (!text) return '';
-
-  let html = text
-    // 1. Escape HTML entities to prevent XSS
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    // 2. Fenced code blocks  ```lang\n...\n```
-    .replace(/```[\w]*\n?([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-    // 3. Inline code `...`
-    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
-    // 4. Bold **...**
-    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
-    // 5. Italic *...*  (but not **)
-    .replace(/(?<!\*)\*(?!\*)([^*\n]+)(?<!\*)\*(?!\*)/g, '<em>$1</em>')
-    // 6. Headings
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-    // 7. Unordered list items (- or *)
-    .replace(/^[ \t]*[-*] (.+)$/gm, '<li>$1</li>')
-    // 8. Ordered list items
-    .replace(/^[ \t]*\d+\. (.+)$/gm, '<li>$1</li>')
-    // 9. Wrap consecutive <li> items in <ul>
-    .replace(/(<li>.*<\/li>\n?)+/gs, '<ul>$&</ul>')
-    // 10. Double newline → paragraph break
-    .replace(/\n\n+/g, '</p><p>')
-    // 11. Single newline → <br>
-    .replace(/\n/g, '<br>');
-
-  return `<p>${html}</p>`;
-}
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 export default function ChatWorkspace({
   isReady,
@@ -188,7 +157,61 @@ export default function ChatWorkspace({
                     </div>
                   ) : (
                     <>
-                      <div dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+                      <ReactMarkdown
+                        className="markdown-body"
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          table: ({node, ...props}) => (
+                            <div className="table-wrapper" style={{ overflowX: 'auto', width: '100%', margin: '1em 0' }}>
+                              <table {...props} />
+                            </div>
+                          ),
+                          code({node, inline, className, children, ...props}) {
+                            const match = /language-(\w+)/.exec(className || '')
+                            const codeString = String(children).replace(/\n$/, '');
+                            if (!inline && match) {
+                              return (
+                                <div className="code-block-wrapper" style={{ position: 'relative', margin: '1em 0' }}>
+                                  <div className="code-header" style={{
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                    backgroundColor: '#1e1e1e', color: '#a3a3a3', padding: '4px 10px', fontSize: '12px',
+                                    borderTopLeftRadius: '6px', borderTopRightRadius: '6px', borderBottom: '1px solid #333'
+                                  }}>
+                                    <span>{match[1]}</span>
+                                    <button 
+                                      onClick={(e) => {
+                                        navigator.clipboard.writeText(codeString);
+                                        const btn = e.currentTarget;
+                                        btn.innerHTML = 'Copied!';
+                                        setTimeout(() => btn.innerHTML = 'Copy', 2000);
+                                      }}
+                                      style={{ background: 'none', border: 'none', color: '#a3a3a3', cursor: 'pointer', fontSize: '12px' }}
+                                    >
+                                      Copy
+                                    </button>
+                                  </div>
+                                  <SyntaxHighlighter
+                                    {...props}
+                                    style={vscDarkPlus}
+                                    language={match[1]}
+                                    PreTag="div"
+                                    customStyle={{ margin: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0 }}
+                                  >
+                                    {codeString}
+                                  </SyntaxHighlighter>
+                                </div>
+                              )
+                            }
+                            return (
+                              <code {...props} className={className}>
+                                {children}
+                              </code>
+                            )
+                          }
+                        }}
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
 
                       {/* Show streaming indicator below partial content */}
                       {isStreamingThisMsg && msg.content && streamingStatus && (
