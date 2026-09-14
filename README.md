@@ -1,4 +1,4 @@
-# ðŸ”„ Self-Reflective Agentic RAG
+# 🔄 Self-Reflective Agentic RAG
 
 ## Project Overview
 This project implements an advanced **Agentic Retrieval-Augmented Generation (RAG)** system designed to drastically reduce hallucinations and improve answer quality. Rather than blindly passing retrieved context to an LLM, this system leverages a **Semantic Router** and an intelligent **Self-Reflection Loop** that evaluates, grades, and iteratively refines search queries until the retrieved context is both relevant and sufficient to answer the user's question.
@@ -62,7 +62,7 @@ flowchart TD
     Router -- DOC_SUMMARY --> DocSum[Generate Summary]
     Router -- DOC_SPECIFIC --> Retrieve[Retrieve Chunks from Chroma]
     
-    Retrieve --> Grade{Grade Context (LLM)}
+    Retrieve --> Grade{"Grade Context (LLM)"}
     
     Grade -- VERDICT: NO --> Rewrite[Rewrite Query]
     Rewrite --> Retrieve
@@ -94,26 +94,26 @@ flowchart TD
 
 ```text
 agentic_rag_system/
-â”‚
-â”œâ”€â”€ src/
-â”‚   â”œâ”€â”€ __init__.py           # Package marker
-â”‚   â”œâ”€â”€ api.py                # FastAPI endpoints, DB sessions, SSE streaming logic
-â”‚   â”œâ”€â”€ config.py             # Global configurations & API handling
-â”‚   â”œâ”€â”€ database.py           # SQLAlchemy setup for SQLite
-â”‚   â”œâ”€â”€ models.py             # Database schemas (Session, Message, Document)
-â”‚   â”œâ”€â”€ state.py              # LangGraph state schema definition
-â”‚   â”œâ”€â”€ document_processor.py # PDF ingestion, chunking, and ChromaDB logic
-â”‚   â”œâ”€â”€ nodes.py              # Core LangGraph agent nodes (retrieve, grade, rewrite, generate)
-â”‚   â”œâ”€â”€ graph.py              # Workflow orchestration and conditional routing
-â”‚   â””â”€â”€ title_utils.py        # Async LLM-based conversation title generation
-â”‚
-â”œâ”€â”€ frontend/                 # React application source code
-â”œâ”€â”€ data/                     # Persistent SQLite Database storage
-â”œâ”€â”€ storage/                  # ChromaDB vector store data
-â”œâ”€â”€ requirements.txt          # Python dependencies
-â”œâ”€â”€ .env.example              # Environment variables template
-â”œâ”€â”€ run.py                    # Main entry point to start the backend API
-â””â”€â”€ README.md                 # Project documentation
+│
+├── src/
+│   ├── __init__.py           # Package marker
+│   ├── api.py                # FastAPI endpoints, DB sessions, SSE streaming logic
+│   ├── config.py             # Global configurations & API handling
+│   ├── database.py           # SQLAlchemy setup for SQLite
+│   ├── models.py             # Database schemas (Session, Message, Document)
+│   ├── state.py              # LangGraph state schema definition
+│   ├── document_processor.py # PDF ingestion, chunking, and ChromaDB logic
+│   ├── nodes.py              # Core LangGraph agent nodes (retrieve, grade, rewrite, generate)
+│   ├── graph.py              # Workflow orchestration and conditional routing
+│   └── title_utils.py        # Async LLM-based conversation title generation
+│
+├── frontend/                 # React application source code
+├── data/                     # Persistent SQLite Database storage
+├── storage/                  # ChromaDB vector store data
+├── requirements.txt          # Python dependencies
+├── .env.example              # Environment variables template
+├── run.py                    # Main entry point to start the backend API
+└── README.md                 # Project documentation
 ```
 
 ## Step-by-Step Execution Flow
