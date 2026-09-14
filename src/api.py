@@ -576,6 +576,10 @@ async def chat_stream(req: ChatRequest, request: Request):
         all_no = bool(reflection_log) and all(
             "VERDICT: NO" in entry.upper() for entry in reflection_log
         )
+        out_of_scope = bool(reflection_log) and any(
+            "VERDICT: OUT_OF_SCOPE" in entry.upper() for entry in reflection_log
+        )
+        clear_sources = all_no or out_of_scope
 
         if not answer:
             answer = (
@@ -594,8 +598,8 @@ async def chat_stream(req: ChatRequest, request: Request):
                 session_id=session_id,
                 role="ai",
                 content=answer,
-                # Only store sources if context was actually used (not all-NO)
-                sources=sources if not all_no else [],
+                # Only store sources if context was actually used
+                sources=sources if not clear_sources else [],
                 metrics=metrics,
             )
             save_db.add(ai_msg)
@@ -615,10 +619,10 @@ async def chat_stream(req: ChatRequest, request: Request):
             yield {"event": "log", "data": json.dumps(reflection_log)}
 
         # Only emit sources when context was actually used
-        if sources and not all_no:
+        if sources and not clear_sources:
             yield {"event": "sources", "data": json.dumps(sources)}
 
-        yield {"event": "all_no", "data": json.dumps(all_no)}
+        yield {"event": "all_no", "data": json.dumps(clear_sources)}
         yield {"event": "message_id", "data": ai_msg_id}
         yield {"event": "answer", "data": json.dumps(answer)}
         yield {"event": "metrics", "data": json.dumps(metrics)}

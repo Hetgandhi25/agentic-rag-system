@@ -309,10 +309,15 @@ VERDICT: YES
 REASON: <one sentence>
 REFINED_QUERY: NONE
 
-OR if context is entirely irrelevant to the user's specific question:
+OR if context is entirely irrelevant to the user's specific question but the question is still about the document's general topic:
 VERDICT: NO
 REASON: <one sentence explaining what specific information is missing>
-REFINED_QUERY: <a better, more specific search query; resolve any pronouns>"""
+REFINED_QUERY: <a better, more specific search query; resolve any pronouns>
+
+OR if the user's question is completely OUT OF SCOPE and clearly unrelated to the document (e.g. general knowledge questions, pop culture, random facts not covered in the text):
+VERDICT: OUT_OF_SCOPE
+REASON: <one sentence stating the question is unrelated to the document>
+REFINED_QUERY: NONE"""
 
     content = invoke_llm(llm, prompt)
     print(f"Grading Result:\n{content}", flush=True)
@@ -392,6 +397,29 @@ def generate(state: GraphState, config: RunnableConfig = None) -> dict:
     reflection_log = state.get("reflection_log", [])
     iterations = state.get("iterations", 1)
     context = state.get("context", "").strip()
+
+    # Detect if any verdict was OUT_OF_SCOPE
+    out_of_scope = bool(reflection_log) and any(
+        "VERDICT: OUT_OF_SCOPE" in entry.upper() for entry in reflection_log
+    )
+    
+    if out_of_scope:
+        last_reason = ""
+        for line in reflection_log[-1].splitlines():
+            if line.strip().upper().startswith("REASON:"):
+                last_reason = line.split(":", 1)[1].strip()
+                break
+        
+        answer = (
+            f"This question appears to be outside the scope of the uploaded document.\n\n"
+            f"**Reason:** {last_reason}\n\n"
+            f"I can only answer questions based on the contents of the uploaded file. Please ask a question related to the document."
+        )
+        print("Verdict was OUT_OF_SCOPE — returning out-of-scope message.", flush=True)
+        end_time = time.time()
+        metrics = state.get("metrics", {})
+        metrics["llm_time"] = metrics.get("llm_time", 0.0) + (end_time - start_time)
+        return {"answer": answer, "metrics": metrics}
 
     # Detect if every grading verdict was NO
     all_verdicts_no = bool(reflection_log) and all(

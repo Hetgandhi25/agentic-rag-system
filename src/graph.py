@@ -31,15 +31,22 @@ def should_continue(state: GraphState) -> str:
 
     reflection = state.get("reflection", "")
     verdict_yes = False
+    out_of_scope = False
+    
     for line in reflection.splitlines():
         if line.strip().upper().startswith("VERDICT:"):
             if "YES" in line.upper():
                 verdict_yes = True
+            elif "OUT_OF_SCOPE" in line.upper():
+                out_of_scope = True
             break
 
     if verdict_yes:
         print("Verdict was YES. Routing to generate.")
-        # Return the incremented count so generate() and the log know how many rounds ran
+        return "generate"
+        
+    if out_of_scope:
+        print("Verdict was OUT_OF_SCOPE. Routing directly to generate.")
         return "generate"
 
     if completed >= MAX_ITERATIONS:
@@ -118,7 +125,7 @@ def _route_after_increment(state: GraphState) -> str:
 
     for line in reflection.splitlines():
         if line.strip().upper().startswith("VERDICT:"):
-            if "YES" in line.upper():
+            if "YES" in line.upper() or "OUT_OF_SCOPE" in line.upper():
                 return "generate"
             break
 
