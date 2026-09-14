@@ -62,15 +62,15 @@ flowchart LR
 ```mermaid
 flowchart TD
     User([User Question]) --> Retrieve[Retrieve Chunks from Chroma]
-    Retrieve --> Grade{Grade Context (LLM)}
+    Retrieve --> Grade{"Grade Context (LLM)"}
     
-    Grade -- VERDICT: NO --> Rewrite[Rewrite Query (LLM)]
+    Grade -- "VERDICT: NO" --> Rewrite["Rewrite Query (LLM)"]
     Rewrite --> Retrieve
     
-    Grade -- VERDICT: YES --> Generate[Generate Answer (LLM)]
+    Grade -- "VERDICT: YES" --> Generate["Generate Answer (LLM)"]
     Generate --> Output([Stream Final Output])
     
-    Grade -. MAX ITERATIONS REACHED .-> Generate
+    Grade -. "MAX ITERATIONS REACHED" .-> Generate
 ```
 
 ## Project Structure
