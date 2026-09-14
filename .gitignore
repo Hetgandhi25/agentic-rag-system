@@ -31,5 +31,40 @@ db/
 # MacOS
 .DS_Store
 
+# Storage & Test Artifacts
+storage/
+data/
+*.pdf
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+frontend/.env.*.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# Database
+*.sqlite
+*.db
+
+# Archives & Temporary Scripts
+*.tar.gz
+test_*.py
+test_*.js
+check_*.py
+seed_db.py
+cleanup.py
+migrate_db.py
+create_repo.py
+upload.py
+verify_end_to_end.py
+run_audit_tests.py
+fix_schema.py
+.ssh_cmd.py
+*_client.py
+*.bat
+
 # User generated
 assets/demo_local.png

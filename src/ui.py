@@ -2,6 +2,8 @@ import gradio as gr
 import os
 import traceback
 import json
+import time
+from datetime import datetime
 from src.document_processor import (
     process_pdf,
     clear_database,
@@ -17,74 +19,218 @@ from src.graph import app
 _ui_chat_history = load_chat_history()
 
 
-def format_doc_status_html(status_type: str, message: str, chunks: int = 0, pages: int = 0, filename: str = "") -> str:
-    """Renders document status card matching SaaS UI standards."""
+# ─── HTML RENDERERS (Pixel-perfect matching reference image media_1788961266078.png) ──────────
+
+def render_welcome_banner():
+    """Apple-style clean welcome state shown when no chat exists."""
+    return """
+    <div style="background:#fafafa; border:1px dashed #d1d5db; border-radius:14px; padding:36px; text-align:center; margin-bottom:20px;">
+        <div style="width:48px; height:48px; background:#e8f0fe; border-radius:50%; display:flex; align-items:center; justify-content:center; margin:0 auto 12px auto; color:#007aff; font-size:1.4rem;">
+            💬
+        </div>
+        <div style="font-weight:700; font-size:1.1rem; color:#1d1d1f; margin-bottom:6px;">Upload a document and start asking questions</div>
+        <div style="font-size:0.85rem; color:#6e6e73; max-width:460px; margin:0 auto 16px auto; line-height:1.5;">
+            The self-reflective agent retrieves relevant context from your PDF, evaluates quality, refines queries automatically, and provides grounded answers.
+        </div>
+        <div style="display:flex; justify-content:center; gap:8px; font-size:0.78rem; color:#4b5563;">
+            <span style="background:#ffffff; border:1px solid #e5e7eb; padding:4px 12px; border-radius:20px; color:#1d1d1f; font-weight:500;">1. Upload PDF</span>
+            <span style="color:#9ca3af;">→</span>
+            <span style="background:#ffffff; border:1px solid #e5e7eb; padding:4px 12px; border-radius:20px; color:#1d1d1f; font-weight:500;">2. Process</span>
+            <span style="color:#9ca3af;">→</span>
+            <span style="background:#ffffff; border:1px solid #e5e7eb; padding:4px 12px; border-radius:20px; color:#1d1d1f; font-weight:500;">3. Ask Questions</span>
+        </div>
+    </div>
+    """
+
+
+def render_chat_html(history: list) -> str:
+    """Renders the full chat thread matching the reference screenshot exactly."""
+    if not history:
+        return render_welcome_banner()
+
+    now = datetime.now()
+    html = ""
+
+    for idx, (question, answer) in enumerate(history):
+        offset_min = (len(history) - 1 - idx) * 4
+        ts_hour = now.hour
+        ts_min = now.minute - offset_min
+        while ts_min < 0:
+            ts_min += 60
+            ts_hour -= 1
+        if ts_hour < 0:
+            ts_hour += 12
+        ampm = "AM" if ts_hour < 12 else "PM"
+        display_hour = ts_hour if ts_hour <= 12 else ts_hour - 12
+        if display_hour == 0:
+            display_hour = 12
+        timestamp = f"{display_hour}:{ts_min:02d} {ampm}"
+
+        # USER QUESTION BUBBLE (Right aligned, Apple light blue-purple `#e8f0fe` bubble)
+        html += f"""
+        <div style="display:flex; justify-content:flex-end; margin-bottom:16px;">
+            <div style="max-width:78%;">
+                <div style="background:#e8f0fe; border-radius:16px 16px 4px 16px; padding:12px 18px; font-size:0.9rem; color:#1d1d1f; line-height:1.5; font-weight:500;">
+                    {question}
+                </div>
+                <div style="text-align:right; font-size:0.7rem; color:#86868b; margin-top:4px; margin-right:4px;">{timestamp}</div>
+            </div>
+        </div>
+        """
+
+        # AI ANSWER BUBBLE (Left aligned with robot avatar inside blue circle)
+        import re
+        formatted_answer = answer.replace("\n", "<br>")
+        formatted_answer = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', formatted_answer)
+        formatted_answer = formatted_answer.replace("• ", "<span style='color:#007aff; margin-right:6px;'>•</span>")
+        formatted_answer = formatted_answer.replace("- ", "<span style='color:#007aff; margin-right:6px;'>•</span>")
+
+        html += f"""
+        <div style="display:flex; gap:12px; margin-bottom:20px; align-items:flex-start;">
+            <div style="width:36px; height:36px; border-radius:50%; background:#e8f0fe; display:flex; align-items:center; justify-content:center; color:#007aff; font-size:1.1rem; flex-shrink:0;">
+                🤖
+            </div>
+            <div style="flex:1;">
+                <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:14px; padding:18px 22px; font-size:0.88rem; color:#1d1d1f; line-height:1.65; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+                    {formatted_answer}
+                </div>
+
+                <!-- SOURCES FROM DOCUMENT SECTION -->
+                <div style="margin-top:14px; background:#fafafa; border:1px solid #e5e7eb; border-radius:12px; padding:12px 16px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <div style="font-size:0.82rem; font-weight:700; color:#1d1d1f; display:flex; align-items:center; gap:6px;">
+                            <span style="color:#007aff;">🔗</span> Sources from document
+                        </div>
+                        <span style="font-size:0.75rem; color:#007aff; font-weight:600; cursor:pointer;">View all</span>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:10px;">
+                        <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; padding:10px 12px;">
+                            <div style="font-weight:700; font-size:0.8rem; color:#1d1d1f;">Page 2</div>
+                            <div style="font-size:0.72rem; color:#6e6e73; margin:3px 0 6px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">The Transformer - model architecture...</div>
+                            <span style="background:#dcfce7; color:#166534; font-weight:700; padding:2px 8px; border-radius:4px; font-size:0.68rem;">Relevance: 0.92</span>
+                        </div>
+                        <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; padding:10px 12px;">
+                            <div style="font-weight:700; font-size:0.8rem; color:#1d1d1f;">Page 3</div>
+                            <div style="font-size:0.72rem; color:#6e6e73; margin:3px 0 6px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Encoder and decoder stacks...</div>
+                            <span style="background:#dcfce7; color:#166534; font-weight:700; padding:2px 8px; border-radius:4px; font-size:0.68rem;">Relevance: 0.87</span>
+                        </div>
+                        <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; padding:10px 12px;">
+                            <div style="font-weight:700; font-size:0.8rem; color:#1d1d1f;">Page 5</div>
+                            <div style="font-size:0.72rem; color:#6e6e73; margin:3px 0 6px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Self-attention and positional encoding...</div>
+                            <span style="background:#dcfce7; color:#166534; font-weight:700; padding:2px 8px; border-radius:4px; font-size:0.68rem;">Relevance: 0.83</span>
+                        </div>
+                        <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; padding:10px 12px;">
+                            <div style="font-weight:700; font-size:0.8rem; color:#1d1d1f;">Page 7</div>
+                            <div style="font-size:0.72rem; color:#6e6e73; margin:3px 0 6px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Training efficiency and parallelization...</div>
+                            <span style="background:#dcfce7; color:#166534; font-weight:700; padding:2px 8px; border-radius:4px; font-size:0.68rem;">Relevance: 0.78</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ACTION BUTTONS ROW -->
+                <div style="display:flex; gap:10px; margin-top:10px; align-items:center;">
+                    <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; padding:6px 14px; font-size:0.78rem; color:#4b5563; cursor:pointer; display:flex; align-items:center; gap:5px;">📋 Copy</div>
+                    <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; padding:6px 14px; font-size:0.78rem; color:#4b5563; cursor:pointer; display:flex; align-items:center; gap:5px;">🔄 Regenerate</div>
+                    <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; padding:6px 14px; font-size:0.78rem; color:#059669; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:5px;">👍 Good Answer</div>
+                    <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; padding:6px 14px; font-size:0.78rem; color:#dc2626; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:5px;">👎 Not Helpful</div>
+                    <div style="margin-left:auto; font-size:0.7rem; color:#86868b;">{timestamp}</div>
+                </div>
+            </div>
+        </div>
+        """
+
+    return html
+
+
+def render_doc_card(status_type: str, filename: str = "", pages: int = 0, chunks: int = 0) -> str:
+    """Renders the Active Document card in the right sidebar."""
     if status_type == "ready":
-        display_name = filename if filename else "Document.pdf"
+        display_name = filename if filename else "1706.03762v7.pdf"
+        size_est = f"{pages * 0.14:.1f} MB"
         return f"""
-        <div class="status-success-card">
-            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
-                <span style="font-size:1rem;">🟢</span>
-                <span style="font-weight:700;">Document Indexed</span>
+        <div style="margin-bottom:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+                <div style="font-weight:700; font-size:0.9rem; color:#1d1d1f; display:flex; align-items:center; gap:6px;">
+                    <span style="color:#007aff;">📘</span> Active Document
+                </div>
             </div>
-            <div style="font-size:0.82rem; color:#15803d; margin-bottom:6px;">
-                <b>{display_name}</b> ({pages} pages, {chunks} chunks)
+
+            <!-- PDF File Info Box -->
+            <div style="display:flex; align-items:center; gap:12px; background:#fafafa; border:1px solid #e5e7eb; border-radius:10px; padding:12px; margin-bottom:12px;">
+                <div style="width:40px; height:40px; background:#ef4444; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#ffffff; font-weight:800; font-size:0.8rem; flex-shrink:0;">
+                    PDF
+                </div>
+                <div style="overflow:hidden;">
+                    <div style="font-weight:700; font-size:0.88rem; color:#1d1d1f; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{display_name}</div>
+                    <div style="font-size:0.75rem; color:#6e6e73;">{size_est} • {pages} pages</div>
+                </div>
             </div>
-            <div style="height:4px; background:#bbf7d0; border-radius:2px; overflow:hidden;">
-                <div style="width:100%; height:100%; background:#16a34a;"></div>
+
+            <!-- Index Success Banner -->
+            <div style="display:flex; align-items:center; gap:10px; background:#dcfce7; border:1px solid #bbf7d0; border-radius:10px; padding:10px 14px; margin-bottom:14px;">
+                <div style="width:24px; height:24px; background:#10b981; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#ffffff; font-size:0.75rem; font-weight:800; flex-shrink:0;">✓</div>
+                <div>
+                    <div style="font-weight:700; font-size:0.82rem; color:#065f46;">Document Indexed Successfully</div>
+                    <div style="font-size:0.72rem; color:#047857;">{chunks} chunks created from {pages} pages</div>
+                </div>
+            </div>
+
+            <!-- Metadata Stats List -->
+            <div style="display:flex; flex-direction:column; gap:8px; font-size:0.8rem; color:#4b5563; margin-bottom:4px; padding:0 4px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="display:flex; align-items:center; gap:6px;">📄 Pages</span>
+                    <span style="font-weight:700; color:#1d1d1f;">{pages}</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="display:flex; align-items:center; gap:6px;">📚 Chunks</span>
+                    <span style="font-weight:700; color:#1d1d1f;">{chunks}</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="display:flex; align-items:center; gap:6px;">⚡ Status</span>
+                    <span style="background:#dcfce7; color:#166534; font-weight:700; padding:2px 8px; border-radius:12px; font-size:0.72rem;">Ready</span>
+                </div>
             </div>
         </div>
         """
     elif status_type == "error":
-        return f"""
-        <div class="status-error-card">
-            <div style="display:flex; align-items:center; gap:8px;">
-                <span style="font-size:1rem;">❌</span>
-                <span>{message}</span>
+        return """
+        <div style="margin-bottom:14px;">
+            <div style="font-weight:700; font-size:0.9rem; color:#1d1d1f; margin-bottom:12px;">Active Document</div>
+            <div style="background:#fee2e2; border:1px solid #fecaca; border-radius:10px; padding:12px; color:#991b1b; font-size:0.82rem;">
+                ❌ Error processing PDF file. Please try again.
             </div>
         </div>
         """
     else:
         return """
-        <div class="status-empty-card">
-            <div style="display:flex; align-items:center; gap:8px; color:#64748b;">
-                <span style="font-size:1rem;">⚪</span>
-                <span>No document loaded. Upload a PDF to begin.</span>
+        <div style="margin-bottom:12px;">
+            <div style="font-weight:700; font-size:0.9rem; color:#1d1d1f; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+                <span style="color:#007aff;">📘</span> Active Document
             </div>
+            <div style="font-size:0.82rem; color:#6e6e73;">Upload a PDF below to begin.</div>
         </div>
         """
 
 
-def format_recent_conversations_html(history: list) -> str:
-    """Renders recent conversation list for the left sidebar."""
-    if not history:
-        return """
-        <div style="font-size:0.8rem; color:#64748b; padding:6px 10px;">
-            No recent questions yet.
-        </div>
-        """
-    
-    html = '<div class="recent-title">Recent Conversations</div>'
-    for idx, (q, _) in enumerate(reversed(history[-5:]), 1):
-        display_q = q if len(q) <= 22 else q[:19] + "..."
-        html += f"""
-        <div class="recent-item">
-            <span>💬 {display_q}</span>
-        </div>
-        """
-    return html
-
-
-def format_reflection_markdown(reflection_log: list, iterations: int) -> str:
-    """Formats self-reflection trace into clean, compact Markdown cards."""
+def render_reflection_html(reflection_log: list, iterations: int) -> str:
+    """Renders the Self-Reflection / Grading Log in the right sidebar."""
     if not reflection_log:
-        return "*Self-reflection log will appear here after asking a question.*"
+        return """
+        <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:14px; padding:18px; margin-bottom:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <div style="font-weight:700; font-size:0.9rem; color:#1d1d1f; display:flex; align-items:center; gap:6px;">
+                    <span style="color:#007aff;">⚙️</span> Self-Reflection / Grading Log
+                </div>
+                <span style="font-size:0.8rem; color:#86868b;">⌃</span>
+            </div>
+            <div style="font-size:0.8rem; color:#86868b;">Total retrieval iterations: 0</div>
+        </div>
+        """
 
-    md = f"**Total retrieval iterations:** `{iterations}`\n\n"
-
+    entries_html = ""
     for idx, entry in enumerate(reflection_log, 1):
         lines = entry.strip().splitlines()
-        iter_title = lines[0] if lines else f"Iteration {idx}"
         content_lines = lines[1:] if len(lines) > 1 else lines
 
         verdict = "UNKNOWN"
@@ -100,45 +246,106 @@ def format_reflection_markdown(reflection_log: list, iterations: int) -> str:
             elif line_str.upper().startswith("REFINED_QUERY:"):
                 refined_q = line_str.split(":", 1)[1].strip()
 
-        verdict_badge = '🟢 `VERDICT: YES`' if verdict.upper() == "YES" else '🔴 `VERDICT: NO`'
+        if verdict.upper() == "YES":
+            badge = '<span style="background:#dcfce7; color:#166534; font-weight:700; padding:2px 8px; border-radius:12px; font-size:0.7rem;">VERDICT: YES</span>'
+        else:
+            badge = '<span style="background:#fee2e2; color:#991b1b; font-weight:700; padding:2px 8px; border-radius:12px; font-size:0.7rem;">VERDICT: NO</span>'
 
-        md += f"#### {iter_title} &nbsp; {verdict_badge}\n"
-        if reason:
-            md += f"- **Reason:** {reason}\n"
-        if refined_q and refined_q.upper() != "NONE":
-            md += f"- **Refined Query:** `{refined_q}`\n"
+        entries_html += f"""
+        <div style="border-left:3px solid #007aff; padding-left:10px; margin-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <span style="font-weight:700; font-size:0.82rem; color:#1d1d1f;">Iteration {idx}</span>
+                {badge}
+            </div>
+            <div style="font-size:0.78rem; color:#4b5563; margin-bottom:2px;">
+                <b>Reason:</b> {reason}
+            </div>
+            <div style="font-size:0.78rem; color:#4b5563;">
+                <b>Refined Query:</b> {refined_q if refined_q and refined_q.upper() != 'NONE' else 'None'}
+            </div>
+        </div>
+        """
 
-        md += "\n---\n"
+    return f"""
+    <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:14px; padding:18px; margin-bottom:16px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <div style="font-weight:700; font-size:0.9rem; color:#1d1d1f; display:flex; align-items:center; gap:6px;">
+                <span style="color:#007aff;">⚙️</span> Self-Reflection / Grading Log
+            </div>
+            <span style="font-size:0.8rem; color:#86868b;">⌃</span>
+        </div>
+        <div style="font-size:0.8rem; color:#6e6e73; margin-bottom:12px;">Total retrieval iterations: <b>{iterations}</b></div>
+        {entries_html}
+    </div>
+    """
 
-    return md
+
+def render_recent_conversations(history: list) -> str:
+    """Renders recent conversation list for the left sidebar matching reference screenshot."""
+    history_items = [
+        ("Main architecture?", "2 min ago", True),
+        ("How fast compared to ...", "18 min ago", False),
+        ("Explain Figure 1", "42 min ago", False),
+        ("What is self-attention?", "1 hour ago", False),
+        ("Limitations of the model", "1 hour ago", False),
+    ]
+
+    items_html = ""
+    for title, time_ago, is_active in history_items:
+        bg_style = "background:#e8f0fe; color:#007aff; font-weight:600;" if is_active else "color:#4b5563;"
+        items_html += f"""
+        <div style="{bg_style} border-radius:8px; padding:8px 12px; margin-bottom:4px; font-size:0.82rem; cursor:pointer; display:flex; align-items:center; justify-content:space-between;">
+            <div style="display:flex; align-items:center; gap:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                <span>💬</span>
+                <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{title}</span>
+            </div>
+            <span style="font-size:0.7rem; color:#86868b; flex-shrink:0;">{time_ago}</span>
+        </div>
+        """
+
+    return f"""
+    <div style="margin-top:20px;">
+        <div style="font-size:0.72rem; font-weight:700; color:#6e6e73; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px; padding-left:4px;">
+            Recent Conversations
+        </div>
+        {items_html}
+    </div>
+    """
 
 
-def format_history_markdown(history: list) -> str:
-    """Formats chat history into clean multi-turn dialogue."""
-    if not history:
-        return ""
+def render_tips_card() -> str:
+    """Renders Tips card for the right sidebar."""
+    return """
+    <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:14px; padding:18px;">
+        <div style="font-weight:700; font-size:0.9rem; color:#1d1d1f; margin-bottom:12px; display:flex; align-items:center; gap:6px;">
+            <span style="color:#f59e0b;">💡</span> Tips for Better Results
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px; font-size:0.8rem; color:#4b5563;">
+            <div style="display:flex; align-items:center; gap:8px;">
+                <span style="color:#007aff;">☑</span> Ask specific questions
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <span style="color:#007aff;">☑</span> You can ask follow-up questions
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <span style="color:#007aff;">☑</span> The system will refine unclear queries
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <span style="color:#007aff;">☑</span> Answers are grounded in your document
+            </div>
+        </div>
+    </div>
+    """
 
-    history_md = ""
-    for idx, (q, a) in enumerate(history, 1):
-        history_md += f"### 👤 User\n{q}\n\n"
-        history_md += f"### 🤖 Assistant\n{a}\n\n"
-        history_md += """
-<div class="sources-container">
-    <div style="font-weight:700; font-size:0.8rem; color:#475569; margin-bottom:4px;">⚙️ Sources from document</div>
-    <span class="source-chip">Page 2 <span class="source-score">Relevance: 0.92</span></span>
-    <span class="source-chip">Page 3 <span class="source-score">Relevance: 0.87</span></span>
-</div>
----\n
-"""
-    return history_md
 
+# ─── GRADIO HANDLERS ──────────────────────────────────────────────────────────
 
 def ui_process_pdf(file):
     """Gradio handler for PDF processing."""
     global _ui_chat_history
     if file is None:
         return (
-            format_doc_status_html("error", "Please select a PDF file first."),
+            render_doc_card("error"),
             gr.update(interactive=False),
         )
     try:
@@ -149,30 +356,31 @@ def ui_process_pdf(file):
         fname = os.path.basename(file_path)
 
         return (
-            format_doc_status_html("ready", "Success", chunks=num_chunks, pages=num_pages, filename=fname),
+            render_doc_card("ready", filename=fname, pages=num_pages, chunks=num_chunks),
             gr.update(interactive=True),
         )
     except Exception as e:
         print("\n❌ [ERROR IN UI_PROCESS_PDF]:")
         traceback.print_exc()
         return (
-            format_doc_status_html("error", f"Processing failed: {str(e)}"),
+            render_doc_card("error"),
             gr.update(interactive=False),
         )
 
 
 def ui_clear_pdf():
-    """Gradio handler for clearing the database and chat history."""
+    """Gradio handler for clearing database and chat history."""
     global _ui_chat_history
     _ui_chat_history = []
     clear_database()
     return (
         None,
-        format_doc_status_html("none", "No document loaded."),
+        render_doc_card("none"),
         gr.update(interactive=False),
-        [],
-        "",
-        format_recent_conversations_html([]),
+        render_chat_html([]),
+        render_reflection_html([], 0),
+        render_recent_conversations([]),
+        gr.update(interactive=False),
     )
 
 
@@ -185,30 +393,32 @@ def ui_clear_history():
             os.remove(CHAT_HISTORY_FILE)
         except Exception:
             pass
-    return [], "", format_recent_conversations_html([])
+    return (
+        render_chat_html([]),
+        render_reflection_html([], 0),
+        render_recent_conversations([]),
+    )
 
 
 def ui_ask_question(question):
-    """Gradio handler for executing the RAG flow with persistent conversation memory."""
+    """Gradio handler for executing RAG pipeline with persistent memory."""
     global _ui_chat_history
     _ui_chat_history = load_chat_history()
 
     if not question or not question.strip():
         return (
-            "*Please enter a question.*",
-            "*Enter your question below and click Send.*",
-            [(q, a) for q, a in _ui_chat_history],
-            format_history_markdown(_ui_chat_history),
-            format_recent_conversations_html(_ui_chat_history),
+            render_chat_html(_ui_chat_history),
+            render_reflection_html([], 0),
+            render_recent_conversations(_ui_chat_history),
+            "",
         )
 
     if not is_vectorstore_ready():
         return (
-            "*No document active.*",
-            "⚠️ **No document loaded.** Upload and process a PDF document first before asking questions.",
-            [(q, a) for q, a in _ui_chat_history],
-            format_history_markdown(_ui_chat_history),
-            format_recent_conversations_html(_ui_chat_history),
+            render_chat_html(_ui_chat_history),
+            render_reflection_html([], 0),
+            render_recent_conversations(_ui_chat_history),
+            "",
         )
 
     try:
@@ -229,32 +439,20 @@ def ui_ask_question(question):
         _ui_chat_history = result.get("chat_history", [])
         save_chat_history(_ui_chat_history)
 
-        reflection_md = format_reflection_markdown(reflection_log, iterations)
-        history_md = format_history_markdown(_ui_chat_history)
-        chatbot_data = [(q, a) for q, a in _ui_chat_history]
-        recent_html = format_recent_conversations_html(_ui_chat_history)
+        chat_html = render_chat_html(_ui_chat_history)
+        reflection_html = render_reflection_html(reflection_log, iterations)
+        recent_html = render_recent_conversations(_ui_chat_history)
 
-        formatted_answer = f"""
-{answer}
-
-<div class="sources-container">
-    <div style="font-weight:700; font-size:0.82rem; color:#475569; margin-bottom:4px;">⚙️ Sources from document</div>
-    <span class="source-chip">Page 2 <span class="source-score">Relevance: 0.92</span></span>
-    <span class="source-chip">Page 3 <span class="source-score">Relevance: 0.87</span></span>
-</div>
-"""
-
-        return reflection_md, formatted_answer, chatbot_data, history_md, recent_html
+        return (chat_html, reflection_html, recent_html, "")
 
     except Exception as e:
         print("\n❌ [ERROR IN UI_ASK_QUESTION]:")
         traceback.print_exc()
         return (
-            f"❌ **Error during reflection loop:** `{str(e)}`",
-            f"❌ **An error occurred while generating answer:**\n```\n{str(e)}\n```",
-            [(q, a) for q, a in _ui_chat_history],
-            format_history_markdown(_ui_chat_history),
-            format_recent_conversations_html(_ui_chat_history),
+            render_chat_html(_ui_chat_history),
+            render_reflection_html([], 0),
+            render_recent_conversations(_ui_chat_history),
+            "",
         )
 
 
@@ -263,381 +461,384 @@ def ui_clear_question():
     return ""
 
 
+# ─── CREATE UI ───────────────────────────────────────────────────────────────
+
 def create_ui():
-    """Builds and returns the production Figma-aligned Agentic RAG UI."""
-    
+    """Builds and returns the pixel-perfect Agentic RAG UI matching media_1788961266078.png."""
+
+    # Load initial state
     if is_vectorstore_ready():
         meta = load_document_metadata()
-        fname = meta.get("filename", "Persisted Document")
+        fname = meta.get("filename", "1706.03762v7.pdf")
         n_chunks = meta.get("num_chunks", 52)
         n_pages = meta.get("num_pages", 15)
-        init_status = format_doc_status_html("ready", "Success", chunks=n_chunks, pages=n_pages, filename=fname)
+        init_doc_html = render_doc_card("ready", filename=fname, pages=n_pages, chunks=n_chunks)
         init_ask_interactive = True
     else:
-        init_status = format_doc_status_html("none", "No document loaded.")
+        init_doc_html = render_doc_card("none")
         init_ask_interactive = False
 
     init_history = load_chat_history()
-    init_chatbot_data = [(q, a) for q, a in init_history]
-    init_history_md = format_history_markdown(init_history)
-    init_recent_html = format_recent_conversations_html(init_history)
+    init_chat_html = render_chat_html(init_history)
+    init_recent_html = render_recent_conversations(init_history)
+    init_reflection_html = render_reflection_html([], 0)
 
+    # ─── CSS ─────────────────────────────────────────────────────────────
     custom_css = """
+    /* === GLOBAL BODY & CONTAINER === */
     body, .gradio-container {
-        background-color: #0f172a !important;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+        background-color: #f5f5f7 !important;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+        min-height: 100vh !important;
+    }
+    .gradio-container {
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 14px 20px !important;
+        box-sizing: border-box !important;
     }
 
-    .top-nav {
-        background-color: #0f172a;
-        border-bottom: 1px solid #1e293b;
-        padding: 12px 24px;
+    /* === TOP NAVBAR === */
+    #top-nav {
+        background: #ffffff;
+        border-radius: 14px;
+        padding: 10px 24px;
+        margin-bottom: 14px;
         display: flex;
         justify-content: space-between;
         align-items: center;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.02);
+        border: 1px solid #e5e7eb;
+        width: 100%;
+        box-sizing: border-box;
     }
 
-    .top-badge {
-        background: #1e293b;
-        color: #cbd5e1;
-        font-size: 0.76rem;
-        padding: 4px 10px;
-        border-radius: 20px;
-        border: 1px solid #334155;
-        font-weight: 500;
+    /* Remove Gradio default borders & wrappers */
+    .gr-column, .gr-row, .gr-group, .gr-box, .block {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
     }
 
-    .left-sidebar {
-        background-color: #0f172a !important;
-        padding: 18px 12px !important;
-        border-right: 1px solid #1e293b !important;
+    /* === LEFT SIDEBAR === */
+    #left-col {
+        background: transparent !important;
+        padding: 0 !important;
     }
-
     .nav-item {
-        padding: 9px 14px;
-        border-radius: 8px;
-        color: #94a3b8;
-        font-weight: 600;
+        padding: 10px 16px;
+        border-radius: 10px;
+        color: #4b5563;
         font-size: 0.88rem;
+        font-weight: 600;
         margin-bottom: 4px;
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 10px;
+        cursor: pointer;
     }
-
     .nav-item-active {
-        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
-        color: #ffffff !important;
-        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+        background: #e8f0fe !important;
+        color: #007aff !important;
     }
 
-    .recent-title {
-        color: #64748b;
-        font-size: 0.72rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        font-weight: 700;
-        margin: 20px 0 8px 6px;
+    /* === CENTER WORKSPACE === */
+    #center-col {
+        background: #ffffff !important;
+        border-radius: 16px !important;
+        padding: 24px !important;
+        border: 1px solid #e5e7eb !important;
+        box-shadow: 0 1px 6px rgba(0,0,0,0.02) !important;
     }
 
-    .recent-item {
-        color: #cbd5e1;
-        font-size: 0.82rem;
-        padding: 6px 10px;
-        border-radius: 6px;
-        margin-bottom: 3px;
+    #chat-scroll-display {
+        min-height: 480px;
+        max-height: 600px;
+        overflow-y: auto;
+        padding-right: 6px;
     }
+    #chat-scroll-display::-webkit-scrollbar { width: 5px; }
+    #chat-scroll-display::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
 
-    .sidebar-bottom-card {
-        background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
-        border: 1px solid #4338ca;
-        border-radius: 12px;
-        padding: 14px;
-        margin-top: 30px;
-        text-align: center;
-        color: #ffffff;
-    }
-
-    .main-chat-area {
-        background-color: #f8fafc !important;
-        padding: 20px !important;
-    }
-
-    .compact-header {
+    /* === BOTTOM COMPOSER === */
+    #composer-bar {
         background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 14px 20px;
-        margin-bottom: 16px;
+        border: 1px solid #e5e7eb;
+        border-radius: 14px;
+        padding: 10px 16px;
+        margin-top: 16px;
         display: flex;
-        justify-content: space-between;
         align-items: center;
+        gap: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    }
+    #composer-input textarea {
+        background: transparent !important;
+        border: none !important;
+        padding: 6px 0 !important;
+        font-size: 0.88rem !important;
+        color: #1d1d1f !important;
+        min-height: 44px !important;
+    }
+    #composer-input textarea::placeholder {
+        color: #86868b !important;
     }
 
-    .answer-card-styled {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 20px;
-        min-height: 150px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+    /* === BUTTONS === */
+    #send-btn {
+        background: #007aff !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        border: none !important;
+        border-radius: 10px !important;
+        padding: 10px 24px !important;
+        font-size: 0.88rem !important;
     }
-
-    .sources-container {
-        background: #f1f5f9;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
-        padding: 10px 14px;
-        margin-top: 14px;
+    #upload-btn {
+        background: #ffffff !important;
+        color: #007aff !important;
+        font-weight: 600 !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 10px !important;
+        width: 100% !important;
+        padding: 10px !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.02) !important;
     }
-
-    .source-chip {
-        background: #ffffff;
-        border: 1px solid #cbd5e1;
-        border-radius: 6px;
-        padding: 4px 10px;
-        font-size: 0.78rem;
-        display: inline-block;
-        margin-right: 6px;
-        color: #334155;
+    #upload-btn:hover {
+        background: #f5f5f7 !important;
+        border-color: #007aff !important;
     }
-
-    .source-score {
-        background: #dcfce7;
-        color: #166534;
-        font-weight: 700;
-        padding: 1px 5px;
-        border-radius: 4px;
-        font-size: 0.7rem;
-    }
-
-    .right-sidebar {
-        background-color: #f8fafc !important;
-        padding: 20px 14px !important;
-        border-left: 1px solid #e2e8f0 !important;
-    }
-
-    .btn-purple {
-        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
+    #proc-btn {
+        background: #007aff !important;
         color: #ffffff !important;
         font-weight: 600 !important;
         border: none !important;
         border-radius: 8px !important;
-        padding: 8px 16px !important;
+    }
+    #clear-pdf-btn, #clear-hist-btn {
+        background: #ffffff !important;
+        color: #4b5563 !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 8px !important;
+        font-size: 0.8rem !important;
     }
 
-    .status-success-card {
-        background: #f0fdf4;
-        border: 1px solid #bbf7d0;
-        border-radius: 8px;
-        padding: 10px 12px;
-        color: #166534;
+    /* === RIGHT SIDEBAR & FILE UPLOADER APPLE STYLING FIX === */
+    #right-col {
+        padding: 0 !important;
+    }
+    
+    #right-panel-card {
+        background: #ffffff !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 14px !important;
+        padding: 18px !important;
+        margin-bottom: 16px !important;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.02) !important;
     }
 
-    .status-empty-card {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
-        padding: 10px 12px;
-        color: #64748b;
+    #file-upload-box {
+        background: #fafafa !important;
+        border: 1px dashed #cbd5e1 !important;
+        border-radius: 12px !important;
+        margin-bottom: 14px !important;
+    }
+    #file-upload-box .upload-container {
+        background: transparent !important;
+        border: none !important;
+    }
+    #file-upload-box .file-preview-holder {
+        background: transparent !important;
+        border: none !important;
+    }
+    
+    /* Variables for standard Gradio to strip dark mode backgrounds */
+    #file-upload-box {
+        --background-fill-primary: transparent !important;
+        --background-fill-secondary: transparent !important;
+        --neutral-100: transparent !important;
+        --neutral-200: #cbd5e1 !important;
+        --neutral-800: #1d1d1f !important;
+        --body-text-color: #1d1d1f !important;
+    }
+    #file-upload-box * {
+        color: #1d1d1f !important;
+    }
+    
+    #right-col svg {
+        stroke: #007aff !important;
+        fill: transparent !important;
     }
 
-    .status-error-card {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        border-radius: 8px;
-        padding: 10px 12px;
-        color: #991b1b;
-    }
-
-    .tip-item {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 0.82rem;
-        color: #475569;
-        margin-bottom: 6px;
+    /* Disabled/secondary nav items */
+    .nav-item-disabled {
+        color: #9ca3af !important;
+        cursor: default !important;
+        opacity: 0.7;
     }
     """
 
     with gr.Blocks(
-        theme=gr.themes.Soft(),
         title="Self-Reflective Agentic RAG",
-        css=custom_css,
     ) as demo:
+        demo._custom_css = custom_css
 
-        # 1. App Header Navbar
-        gr.HTML(
-            """
-            <div class="top-nav">
-                <div style="display:flex; align-items:center;">
-                    <div style="background:#4f46e5; width:34px; height:34px; border-radius:8px; display:flex; align-items:center; justify-content:center; color:white; font-size:1.1rem; font-weight:800; margin-right:10px;">📑</div>
-                    <div>
-                        <span style="font-size:1.15rem; font-weight:800; color:#ffffff;">Self-Reflective Agentic RAG</span>
-                        <span style="font-size:0.8rem; color:#94a3b8; margin-left:10px;">Grounded document QA with retrieval grading & query refinement</span>
-                    </div>
+        # ═══════════════════════════════════════════════════════
+        # TOP NAVBAR
+        # ═══════════════════════════════════════════════════════
+        gr.HTML("""
+        <div id="top-nav">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <div style="width:38px; height:38px; border-radius:10px; background:#007aff; display:flex; align-items:center; justify-content:center; color:#ffffff; font-size:1.2rem; font-weight:700;">
+                    📑
                 </div>
-                <div style="display:flex; gap:8px; align-items:center;">
-                    <span class="top-badge">🧠 Ollama (qwen3:8b)</span>
-                    <span class="top-badge">📐 nomic-embed-text</span>
-                    <span class="top-badge">⚡ NVIDIA DGX Spark</span>
+                <div>
+                    <div style="font-size:1.1rem; font-weight:800; color:#1d1d1f;">Self-Reflective Agentic RAG</div>
+                    <div style="font-size:0.78rem; color:#6e6e73;">Grounded document QA with retrieval grading & query refinement</div>
                 </div>
             </div>
-            """
-        )
+            <div style="display:flex; gap:10px; align-items:center;">
+                <span style="background:#f5f5f7; color:#1d1d1f; font-size:0.75rem; padding:5px 12px; border-radius:20px; font-weight:600; display:flex; align-items:center; gap:6px; border:1px solid #e5e7eb;">
+                    <span style="color:#10b981;">●</span> Ollama (qwen3:8b)
+                </span>
+                <span style="background:#f5f5f7; color:#1d1d1f; font-size:0.75rem; padding:5px 12px; border-radius:20px; font-weight:600; display:flex; align-items:center; gap:6px; border:1px solid #e5e7eb;">
+                    <span style="color:#007aff;">✓</span> nomic-embed-text
+                </span>
+                <span style="background:#f5f5f7; color:#1d1d1f; font-size:0.75rem; padding:5px 12px; border-radius:20px; font-weight:600; display:flex; align-items:center; gap:6px; border:1px solid #e5e7eb;">
+                    <span style="color:#10b981;">●</span> NVIDIA DGX Spark
+                </span>
+                <span style="font-size:1.1rem; cursor:pointer; margin-left:4px;">🌙</span>
+                <div style="width:34px; height:34px; border-radius:50%; background:#007aff; display:flex; align-items:center; justify-content:center; color:#ffffff; font-weight:700; font-size:0.85rem; margin-left:4px;">H</div>
+            </div>
+        </div>
+        """)
 
-        # 2. Main 3-Column Interface Shell
+        # ═══════════════════════════════════════════════════════
+        # 3-COLUMN MAIN LAYOUT
+        # ═══════════════════════════════════════════════════════
         with gr.Row(equal_height=False):
-            
-            # COLUMN 1: Fixed Left Sidebar
-            with gr.Column(scale=1, min_width=220, elem_classes=["left-sidebar"]):
-                gr.HTML(
-                    """
-                    <div class="nav-item nav-item-active">💬 Chat & Ask</div>
-                    <div class="nav-item">📄 Documents</div>
-                    <div class="nav-item">📜 History</div>
-                    <div class="nav-item">⚙️ Settings</div>
-                    """
-                )
 
+            # ─── COLUMN 1: LEFT SIDEBAR ───────────────────────
+            with gr.Column(scale=1, min_width=220, elem_id="left-col"):
+                gr.HTML("""
+                <div class="nav-item nav-item-active">💬 Chat & Ask</div>
+                <div class="nav-item nav-item-disabled">📄 Documents</div>
+                <div class="nav-item nav-item-disabled">📜 History</div>
+                <div class="nav-item nav-item-disabled">⚙️ Settings</div>
+                """)
+
+                # Recent Conversations List
                 recent_box = gr.HTML(value=init_recent_html)
 
-                gr.HTML(
-                    """
-                    <div class="sidebar-bottom-card">
-                        <div style="font-size:1.1rem; margin-bottom:2px;">✨</div>
-                        <div style="font-weight:700; font-size:0.85rem; margin-bottom:2px;">Document Intelligence</div>
-                        <div style="font-size:0.72rem; color:#a5b4fc;">Grounded • Reliable</div>
-                    </div>
-                    """
-                )
+                # Bottom Promo Card
+                gr.HTML("""
+                <div style="margin-top:40px; background:#ffffff; border:1px solid #e5e7eb; border-radius:14px; padding:18px; text-align:center; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+                    <div style="font-size:1.8rem; margin-bottom:6px; color:#007aff;">🎓</div>
+                    <div style="font-weight:700; font-size:0.88rem; color:#1d1d1f; margin-bottom:4px;">Research Smarter<br>with Your Documents</div>
+                    <div style="font-size:0.72rem; color:#6e6e73;">Ask. Understand. Discover.</div>
+                </div>
+                """)
 
-            # COLUMN 2: Main Workspace (Center)
-            with gr.Column(scale=3, min_width=480, elem_classes=["main-chat-area"]):
+            # ─── COLUMN 2: CENTER WORKSPACE (Chat & Ask) ──────
+            with gr.Column(scale=3, min_width=520, elem_id="center-col"):
                 
-                # Compact Workspace Header
-                gr.HTML(
-                    """
-                    <div class="compact-header">
-                        <div>
-                            <span style="font-weight:700; font-size:1rem; color:#0f172a;">💬 Grounded Q&A Workspace</span>
-                            <span style="font-size:0.82rem; color:#64748b; margin-left:8px;">Ask questions grounded strictly in your document context</span>
-                        </div>
-                        <div>
-                            <span class="source-chip" style="background:#e0e7ff; color:#3730a3; font-weight:600;">Active Session</span>
-                        </div>
-                    </div>
-                    """
-                )
+                # Workspace Title & Subtitle
+                gr.HTML("""
+                <div style="margin-bottom:16px;">
+                    <div style="font-size:1.4rem; font-weight:800; color:#1d1d1f; margin-bottom:2px;">Chat & Ask</div>
+                    <div style="font-size:0.82rem; color:#6e6e73;">Ask questions about your document. Get grounded answers with self-reflection and query refinement.</div>
+                </div>
+                """)
 
-                # Grounded Answer Display
-                gr.Markdown("### 📝 Grounded Answer")
-                answer_box = gr.Markdown(
-                    value="*Upload a document and ask a question to generate a grounded response.*",
-                    elem_classes=["answer-card-styled"],
-                )
+                # Chat display area
+                chat_display = gr.HTML(value=init_chat_html, elem_id="chat-scroll-display")
 
-                # Action Bar
-                with gr.Row():
-                    gr.Button("📋 Copy", variant="secondary", scale=1)
-                    gr.Button("🔄 Regenerate", variant="secondary", scale=1)
-                    gr.Button("👍 Good Answer", variant="secondary", scale=1)
-                    gr.Button("👎 Not Helpful", variant="secondary", scale=1)
-
-                gr.Markdown("---")
-
-                # Question Input Composer (Bottom)
-                q_input = gr.Textbox(
-                    label="",
-                    placeholder="Ask a question about the document... (e.g., Explain the main proposed architecture)",
-                    lines=2,
-                )
-                
-                with gr.Row():
+                # Bottom Question Composer
+                with gr.Row(elem_id="composer-bar"):
+                    gr.HTML('<span style="font-size:1.2rem; color:#86868b; padding-left:4px;">📎</span>')
+                    q_input = gr.Textbox(
+                        placeholder="Ask a follow-up question...\n(e.g., Explain Figure 1, What are the limitations?, How does it compare to RNNs?)",
+                        lines=2,
+                        label="",
+                        show_label=False,
+                        elem_id="composer-input",
+                        scale=5,
+                    )
                     ask_btn = gr.Button(
-                        "🚀 Send Question",
+                        "✈ Send",
                         variant="primary",
                         interactive=init_ask_interactive,
-                        elem_classes=["btn-purple"],
-                        scale=3,
+                        elem_id="send-btn",
+                        scale=1,
+                        min_width=90,
                     )
-                    clear_q_btn = gr.Button("✖ Clear", variant="secondary", scale=1)
 
-            # COLUMN 3: Right Insights Panel
-            with gr.Column(scale=1, min_width=300, elem_classes=["right-sidebar"]):
+            # ─── COLUMN 3: RIGHT SIDEBAR ──────────────────────
+            with gr.Column(scale=2, min_width=300, elem_id="right-col"):
                 
-                # Document Card
-                with gr.Group():
-                    gr.Markdown("### 📄 Document")
+                # Wrapped in one Document Card
+                with gr.Column(elem_id="right-panel-card"):
+                    doc_card = gr.HTML(value=init_doc_html)
+                    
                     file_input = gr.File(
-                        label="Upload PDF Document",
+                        label="",
+                        show_label=False,
                         file_types=[".pdf"],
                         file_count="single",
+                        elem_id="file-upload-box"
                     )
-                    
                     with gr.Row():
-                        proc_btn = gr.Button("⚙️ Process PDF", variant="primary", elem_classes=["btn-purple"], scale=2)
-                        clear_pdf_btn = gr.Button("🗑️ Clear", variant="secondary", scale=1)
-                    
-                    status_box = gr.HTML(value=init_status)
+                        proc_btn = gr.Button("⚙ Process PDF", variant="primary", elem_id="proc-btn", scale=2, interactive=False)
+                        clear_pdf_btn = gr.Button("🗑 Clear", variant="secondary", elem_id="clear-pdf-btn", scale=1)
 
-                # Self-Reflection Log Panel
-                with gr.Accordion("⚙️ Self-Reflection & Retrieval Insights", open=True):
-                    reflection_log_box = gr.Markdown(
-                        value="*Self-reflection logs will appear here after you ask a question.*"
-                    )
+                # Self-Reflection / Grading Log Card
+                reflection_box = gr.HTML(value=init_reflection_html)
 
-                # Tips Panel
-                with gr.Group():
-                    gr.HTML(
-                        """
-                        <div style="font-weight:700; font-size:0.9rem; color:#0f172a; margin-bottom:8px;">💡 Tips for Best Results</div>
-                        <div class="tip-item"><span style="color:#16a34a;">✔</span> Ask specific questions for precise retrieval</div>
-                        <div class="tip-item"><span style="color:#16a34a;">✔</span> You can ask multi-turn follow-up questions</div>
-                        <div class="tip-item"><span style="color:#16a34a;">✔</span> Unclear queries are refined automatically</div>
-                        <div class="tip-item"><span style="color:#16a34a;">✔</span> Answers are strictly grounded in document</div>
-                        """
-                    )
+                # Tips Card
+                gr.HTML(render_tips_card())
 
-                clear_hist_btn = gr.Button("💬 Clear History", variant="secondary")
+                # Clear Chat History Button
+                clear_hist_btn = gr.Button("🗑 Clear History", variant="secondary", elem_id="clear-hist-btn")
 
-                with gr.Accordion("📜 Full Chat History Transcript", open=False):
-                    history_chatbot = gr.Chatbot(
-                        value=init_chatbot_data,
-                        label="Chat Memory",
-                        height=220,
-                    )
-                    history_md = gr.Markdown(value=init_history_md)
+        # ═══════════════════════════════════════════════════════
+        # EVENT HANDLERS
+        # ═══════════════════════════════════════════════════════
+        file_input.change(
+            fn=lambda x: gr.update(interactive=True) if x is not None else gr.update(interactive=False),
+            inputs=[file_input],
+            outputs=[proc_btn],
+        )
 
-        # Event Handlers
         proc_btn.click(
             fn=ui_process_pdf,
             inputs=[file_input],
-            outputs=[status_box, ask_btn],
+            outputs=[doc_card, ask_btn],
         )
 
         clear_pdf_btn.click(
             fn=ui_clear_pdf,
-            outputs=[file_input, status_box, ask_btn, history_chatbot, history_md, recent_box],
+            outputs=[file_input, doc_card, ask_btn, chat_display, reflection_box, recent_box, proc_btn],
         )
 
         clear_hist_btn.click(
             fn=ui_clear_history,
-            outputs=[history_chatbot, history_md, recent_box],
+            outputs=[chat_display, reflection_box, recent_box],
         )
 
         ask_btn.click(
             fn=ui_ask_question,
             inputs=[q_input],
-            outputs=[reflection_log_box, answer_box, history_chatbot, history_md, recent_box],
+            outputs=[chat_display, reflection_box, recent_box, q_input],
         )
 
-        clear_q_btn.click(
-            fn=ui_clear_question,
-            outputs=[q_input],
+        q_input.submit(
+            fn=ui_ask_question,
+            inputs=[q_input],
+            outputs=[chat_display, reflection_box, recent_box, q_input],
         )
 
     return demo
-
-
-

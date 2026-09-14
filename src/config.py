@@ -1,19 +1,40 @@
 import os
+import urllib.request
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Configuration variables
-CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "./chroma_db")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STORAGE_DIR = os.getenv("STORAGE_DIR", os.path.join(BASE_DIR, "storage"))
+VECTOR_STORE_FILE = os.path.join(STORAGE_DIR, "vector_store.json")
+CHAT_HISTORY_FILE = os.path.join(STORAGE_DIR, "chat_history.json")
+METADATA_FILE = os.path.join(STORAGE_DIR, "metadata.json")
 MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "3"))
 
-# LLM Models
-LLM_MODEL = "gemini-1.5-pro"
-EMBEDDING_MODEL = "models/text-embedding-004" # Updated from deprecated gemini-embedding-001
+def detect_ollama_url():
+    """Detect working Ollama endpoint for local host."""
+    env_url = os.getenv("OLLAMA_BASE_URL")
+    if env_url:
+        return env_url
 
-# Verify API key is present
-def get_api_key():
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY is not set in your environment or .env file!")
-    return api_key
+    candidates = [
+        "http://localhost:11434",
+        "http://127.0.0.1:11434"
+    ]
+    for url in candidates:
+        try:
+            req = urllib.request.urlopen(f"{url}/api/tags", timeout=1)
+            if req.status == 200:
+                print(f"[CONFIG] Ollama connected successfully at: {url}")
+                return url
+        except Exception:
+            continue
+    return "http://localhost:11434"
+
+OLLAMA_BASE_URL = detect_ollama_url()
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
+
+MODEL_PAI_BASE_URL = os.getenv("MODEL_PAI_BASE_URL", "http://192.168.100.10:8000/v1")
+MODEL_PAI_API_KEY = os.getenv("MODEL_PAI_API_KEY") or os.getenv("DEFAULT_API_KEY") or "dummy-key-for-local-testing"
+MODEL_PAI_MODEL = os.getenv("MODEL_PAI_MODEL", "qwen3.8-27b")

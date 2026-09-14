@@ -1,67 +1,200 @@
-from langchain_ollama import ChatOllama
+import re
+import time
+from langchain_core.runnables import RunnableConfig
+from langchain_openai import ChatOpenAI
 from src.state import GraphState
-from src.config import OLLAMA_MODEL, OLLAMA_BASE_URL
-from src.document_processor import get_db
+from src.config import (
+    MODEL_PAI_BASE_URL,
+    MODEL_PAI_API_KEY,
+    MODEL_PAI_MODEL,
+    MAX_ITERATIONS,
+)
+from src.document_processor import get_vectorstore
 
-def get_llm():
-    return ChatOllama(
-        model=OLLAMA_MODEL,
-        base_url=OLLAMA_BASE_URL,
-        temperature=0, # Deterministic output
+# ─── vLLM / OpenAI-compatible client ─────────────────────────────────────────
+
+# vLLM-specific extra body parameters (injected raw into the HTTP JSON body).
+# These CANNOT go in model_kwargs because the openai SDK's Completions.create()
+# performs strict kwarg validation and will raise TypeError for unknown keys.
+# Passing them via extra_body bypasses SDK validation entirely.
+_VLLM_EXTRA_BODY = {
+    "top_k": 20,
+    "min_p": 0.0,
+    "repetition_penalty": 1.0,
+    "chat_template_kwargs": {"enable_thinking": False},
+}
+
+
+def get_llm() -> ChatOpenAI:
+    """
+    Returns a LangChain ChatOpenAI client pointed at the vLLM gateway
+    (Qwen3.8-27B served via OpenAI-compatible API at http://192.168.100.10:8000).
+
+    Sampling follows HuggingFace's recommended Qwen3 instruct params.
+    Thinking is DISABLED (enable_thinking=False) via extra_body so the model
+    responds in plain instruct style with no <think> blocks.
+
+    NOTE: vLLM-specific params (top_k, min_p, etc.) are passed via extra_body
+    on each .invoke() call, NOT via model_kwargs, to avoid the openai SDK's
+    strict Completions.create() parameter validation rejecting unknown kwargs.
+    """
+    return ChatOpenAI(
+        model=MODEL_PAI_MODEL,
+        base_url=MODEL_PAI_BASE_URL.rstrip("/"),  # already contains /v1 per config
+        api_key=MODEL_PAI_API_KEY,
+        temperature=0.7,
+        top_p=0.8,
+        presence_penalty=1.5,
+        max_tokens=2048,
+        timeout=60.0,  # 60s timeout to prevent hanging
+        streaming=True, # Enable streaming tokens
+        # No model_kwargs here — vLLM extras go through extra_body at call time
     )
 
+
+def invoke_llm(llm: ChatOpenAI, prompt: str, config: RunnableConfig = None) -> str:
+    """
+    Invoke the LLM with vLLM extra_body params injected at call time.
+    This is the correct way to pass vLLM-specific keys (top_k, min_p,
+    chat_template_kwargs) without triggering the openai SDK TypeError.
+    """
+    bound = llm.bind(extra_body=_VLLM_EXTRA_BODY)
+    response = bound.invoke(prompt, config=config)
+    return extract_text(response)
+
+
+# ─── Safety: strip any stray <think> blocks ──────────────────────────────────
+# enable_thinking=False should prevent these, but kept as a safety net in case
+# the server is switched to a thinking-enabled config or model.
+
+def strip_think_tags(text: str) -> str:
+    """Remove <think>...</think> reasoning blocks from model output."""
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+
 def extract_text(response) -> str:
-    """Safely extract a plain string from an LLM response."""
+    """Safely extract a plain string from an LLM response, stripping think-tags."""
     content = response.content
     if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, list):
+        raw = content.strip()
+    elif isinstance(content, list):
         parts = []
         for block in content:
             if isinstance(block, str):
                 parts.append(block)
             elif isinstance(block, dict):
                 parts.append(block.get("text", ""))
-        return " ".join(parts).strip()
-    return str(content).strip()
+        raw = " ".join(parts).strip()
+    else:
+        raw = str(content).strip()
+
+    return strip_think_tags(raw)
+
+
+# ─── RAG Pipeline Nodes ───────────────────────────────────────────────────────
 
 def retrieve(state: GraphState) -> dict:
-    """Retrieve top-k chunks using the current query."""
+    """
+    Retrieve top-k chunks using the current query and document_id filter.
+    k grows with iteration count to cast a wider net on refinement rounds.
+    NOTE: 'iterations' is NOT incremented here — managed by the router.
+    """
+    start_time = time.time()
     print("\n--- [NODE: RETRIEVE] ---", flush=True)
     query = state.get("refined_query") or state["question"]
-    print(f"Searching vectorstore for: '{query}'", flush=True)
-    db = get_db()
-    docs = db.similarity_search(query, k=4)
-    context = "\n\n".join(
-        [f"[Chunk {i + 1}]:\n{d.page_content}" for i, d in enumerate(docs)]
+    doc_id = state.get("document_id")
+    iteration = state.get("iterations", 0)
+
+    # Increase k on later iterations to cast a wider net
+    k = min(4 + iteration * 2, 10)
+    print(f"Searching vectorstore for: '{query}' in doc: {doc_id} (k={k})", flush=True)
+
+    vectorstore = get_vectorstore()
+    filter_dict = {"document_id": doc_id} if doc_id else None
+
+    results = vectorstore.similarity_search_with_score(
+        query,
+        k=k,
+        filter=filter_dict,
     )
-    print(f"Retrieved {len(docs)} chunks.", flush=True)
+
+    context_parts = []
+    sources = []
+
+    for i, (doc, distance) in enumerate(results):
+        context_parts.append(f"[Chunk {i + 1}]:\n{doc.page_content}")
+
+        # Chroma uses cosine distance (0=identical, 2=opposite).
+        # Normalize to a 0–1 relevance score: relevance = 1 - (distance / 2)
+        relevance = max(0.0, min(1.0, round(1.0 - (distance / 2.0), 2)))
+
+        # PyPDFLoader page metadata is 0-indexed; add 1 for display
+        page_num = doc.metadata.get("page", 0)
+        if isinstance(page_num, int):
+            page_num += 1
+
+        sources.append({
+            "page": page_num,
+            "filename": doc.metadata.get("filename", "Unknown"),
+            "rel": f"{relevance:.2f}",
+            "text": doc.page_content.replace('\n', ' ').strip()[:150] + "...",
+        })
+
+    context = "\n\n".join(context_parts)
+    print(f"Retrieved {len(results)} chunks.", flush=True)
+
+    end_time = time.time()
+    metrics = state.get("metrics", {})
+    metrics["retrieval_time"] = metrics.get("retrieval_time", 0.0) + (end_time - start_time)
+
     return {
         "context": context,
+        "sources": sources,
+        "metrics": metrics,
         "refined_query": query,
-        "iterations": state.get("iterations", 0) + 1,
+        # Do NOT touch 'iterations' here — router owns the counter
     }
 
+
 def grade_retrieval(state: GraphState) -> dict:
-    """LLM judges whether the retrieved context is relevant and sufficient."""
+    """
+    LLM judges whether the retrieved context is relevant and sufficient.
+    Uses refined_query (the actual query used for retrieval), not the original question.
+    """
+    start_time = time.time()
     print("\n--- [NODE: GRADE_RETRIEVAL] ---", flush=True)
-    print("Evaluating context with qwen3:8b...", flush=True)
+    print(f"Evaluating context with {MODEL_PAI_MODEL} via vLLM...", flush=True)
     llm = get_llm()
+
+    # Use the refined query that was actually used to retrieve context
+    active_query = state.get("refined_query") or state["question"]
+
+    history_str = ""
+    chat_history = state.get("chat_history", [])
+    if chat_history:
+        history_lines = []
+        for q, a in chat_history[-3:]:
+            history_lines.append(f"User: {q}\nAssistant: {a}")
+        history_str = "\nPrevious Conversation History:\n" + "\n".join(history_lines) + "\n"
+
     prompt = f"""You are a strict retrieval quality judge for a RAG system.
 
-Your job: decide if the retrieved context is good enough to answer the question accurately.
+Your job: decide if the retrieved context is good enough to answer the query accurately, \
+taking into account the conversation history.
 
-Question: {state['question']}
+{history_str}
+Original Question: {state['question']}
+Search Query Used: {active_query}
 
 Retrieved Context:
 {state['context']}
 
 Evaluate the context on three criteria:
-1. RELEVANCE — Does it directly address the question?
-2. SUFFICIENCY — Does it contain enough detail for a complete answer?
-3. CONSISTENCY — Are there contradictions between chunks?
+1. RELEVANCE — Does it directly address the search query (and the original question)?
+2. SUFFICIENCY — Does it contain enough detail for a complete, accurate answer?
+3. CONSISTENCY — Are there contradictions or gaps between chunks?
 
-Reply in this EXACT format (no extra lines):
+Reply in this EXACT format (no extra lines, no preamble):
 VERDICT: YES
 REASON: <one sentence>
 REFINED_QUERY: NONE
@@ -69,41 +202,116 @@ REFINED_QUERY: NONE
 OR if context is not good enough:
 VERDICT: NO
 REASON: <one sentence explaining what is missing or wrong>
-REFINED_QUERY: <a better, more specific search query to find the missing information>"""
+REFINED_QUERY: <a better, more specific search query to find the missing information; \
+resolve any pronouns like 'it' or 'they' using the original question>"""
 
-    response = llm.invoke(prompt)
-    content = extract_text(response)
+    content = invoke_llm(llm, prompt)
     print(f"Grading Result:\n{content}", flush=True)
 
-    log_entry = f"Iteration {state.get('iterations', 1)}\n{content}"
+    current_iter = state.get("iterations", 1)
+    log_entry = f"Iteration {current_iter}\n{content}"
     reflection_log = list(state.get("reflection_log", [])) + [log_entry]
+
+    end_time = time.time()
+    metrics = state.get("metrics", {})
+    metrics["llm_time"] = metrics.get("llm_time", 0.0) + (end_time - start_time)
 
     return {
         "reflection": content,
         "reflection_log": reflection_log,
+        "metrics": metrics,
     }
 
+
 def rewrite_query(state: GraphState) -> dict:
-    """Extract the REFINED_QUERY from the grader's output."""
+    """
+    Extract the REFINED_QUERY from the grader's output.
+    If absent or malformed, ask the LLM to generate a meaningful replacement
+    rather than silently repeating the same query.
+    """
     print("\n--- [NODE: REWRITE_QUERY] ---", flush=True)
     reflection = state.get("reflection", "")
-    refined = state["question"]  # safe fallback
+    refined = None
 
     for line in reflection.splitlines():
         line = line.strip()
         if line.upper().startswith("REFINED_QUERY:"):
             candidate = line.split(":", 1)[1].strip()
-            if candidate and candidate.upper() != "NONE":
+            if candidate and candidate.upper() != "NONE" and len(candidate) > 5:
                 refined = candidate
                 break
+
+    if refined is None:
+        print("REFINED_QUERY not found — generating fallback via vLLM...", flush=True)
+        llm = get_llm()
+        original_q = state["question"]
+        context_snippet = (state.get("context") or "")[:500]
+        reason_line = ""
+        for line in reflection.splitlines():
+            if line.strip().upper().startswith("REASON:"):
+                reason_line = line.split(":", 1)[1].strip()
+                break
+
+        fallback_prompt = f"""A RAG retrieval step failed to find sufficient context.
+
+Original question: {original_q}
+Retrieval failure reason: {reason_line or 'Context was insufficient'}
+Partial context found (for keyword hints):
+{context_snippet}
+
+Write ONE improved search query (max 20 words) that is more specific and \
+different from the original question. Return ONLY the query text, nothing else."""
+
+        refined = invoke_llm(llm, fallback_prompt).strip().strip('"').strip("'")
+        if not refined or len(refined) < 5:
+            refined = original_q + " detailed steps process"
 
     print(f"New refined query: '{refined}'", flush=True)
     return {"refined_query": refined}
 
-def generate(state: GraphState) -> dict:
-    """Generate the final answer grounded strictly in the validated context and conversation history."""
+
+def generate(state: GraphState, config: RunnableConfig = None) -> dict:
+    """
+    Generate the final answer grounded strictly in the validated context.
+
+    If all grading iterations returned NO (no useful context was ever found),
+    emit an honest 'not found in document' message instead of hallucinating.
+    """
+    start_time = time.time()
     print("\n--- [NODE: GENERATE] ---", flush=True)
-    print("Generating final answer with qwen3:8b...", flush=True)
+
+    reflection_log = state.get("reflection_log", [])
+    iterations = state.get("iterations", 1)
+    context = state.get("context", "").strip()
+
+    # Detect if every grading verdict was NO
+    all_verdicts_no = bool(reflection_log) and all(
+        "VERDICT: NO" in entry.upper() for entry in reflection_log
+    )
+
+    if all_verdicts_no and iterations >= MAX_ITERATIONS:
+        last_reason = ""
+        for line in reflection_log[-1].splitlines():
+            if line.strip().upper().startswith("REASON:"):
+                last_reason = line.split(":", 1)[1].strip()
+                break
+
+        not_found_answer = (
+            f"After {iterations} retrieval attempt(s), the system could not find sufficient "
+            f"information in the document to answer this question.\n\n"
+            f"**Last retrieval assessment:** {last_reason}\n\n"
+            f"Please try:\n"
+            f"- Rephrasing your question with more specific terminology from the document\n"
+            f"- Asking about a specific section, step, or component\n"
+            f"- Checking that the uploaded document covers this topic"
+        )
+        print("All verdicts were NO — returning honest 'not found' message.", flush=True)
+        end_time = time.time()
+        metrics = state.get("metrics", {})
+        metrics["llm_time"] = metrics.get("llm_time", 0.0) + (end_time - start_time)
+        return {"answer": not_found_answer, "metrics": metrics}
+
+    print(f"Generating final answer with {MODEL_PAI_MODEL} via vLLM...", flush=True)
     llm = get_llm()
 
     history_str = ""
@@ -115,21 +323,21 @@ def generate(state: GraphState) -> dict:
         history_str = "\n\nPrevious Conversation History:\n" + "\n---\n".join(history_lines) + "\n"
 
     prompt = f"""You are a precise, helpful assistant. Answer the question using ONLY the provided context and conversation history.
-If the context is insufficient for a complete answer, clearly state what is missing — do not hallucinate.
+If the context is insufficient for a complete answer, clearly state what is missing — do not hallucinate or use outside knowledge.
 
 Question: {state['question']}
 {history_str}
 Validated Context:
-{state['context']}
+{context}
 
-Write a clear, structured answer grounded in the context above."""
+Write a clear, structured answer grounded strictly in the context above. \
+Use bullet points or numbered steps where appropriate for clarity."""
 
-    response = llm.invoke(prompt)
-    answer = extract_text(response)
+    answer = invoke_llm(llm, prompt, config=config)
     print("Generation complete.", flush=True)
 
-    updated_history = list(chat_history) + [(state['question'], answer)]
-    return {
-        "answer": answer,
-        "chat_history": updated_history,
-    }
+    end_time = time.time()
+    metrics = state.get("metrics", {})
+    metrics["llm_time"] = metrics.get("llm_time", 0.0) + (end_time - start_time)
+
+    return {"answer": answer, "metrics": metrics}
