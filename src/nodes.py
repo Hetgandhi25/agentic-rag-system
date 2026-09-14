@@ -111,12 +111,45 @@ def retrieve(state: GraphState) -> dict:
 
     vectorstore = get_vectorstore()
     filter_dict = {"document_id": doc_id} if doc_id else None
+    
+    # 1. Quick intent classification on first iteration
+    is_broad = False
+    if iteration == 0 and not state.get("refined_query"):
+        intent_prompt = f"Is this question asking for a broad summary/overview of the entire document, or asking for specific details/facts?\nQuestion: '{query}'\nReply ONLY with 'BROAD' or 'SPECIFIC'."
+        llm = get_llm()
+        intent = invoke_llm(llm, intent_prompt).strip().upper()
+        if "BROAD" in intent:
+            is_broad = True
+            print("Detected BROAD summary request. Retrieving representative chunks.", flush=True)
 
-    results = vectorstore.similarity_search_with_score(
-        query,
-        k=k,
-        filter=filter_dict,
-    )
+    results = []
+    
+    if is_broad and doc_id:
+        # Fetch the first few chunks of the document to provide a solid abstract/overview
+        try:
+            col_data = vectorstore._collection.get(where=filter_dict, limit=50)
+            docs_from_col = []
+            if col_data and col_data["documents"]:
+                for idx, txt in enumerate(col_data["documents"]):
+                    meta = col_data["metadatas"][idx] if col_data["metadatas"] else {}
+                    # Mock a tuple (Document, distance) where distance is 0.0 (perfect match)
+                    from langchain_core.documents import Document
+                    docs_from_col.append((Document(page_content=txt, metadata=meta), 0.0))
+                
+                # Sort by page number if available to ensure we get the true start of the document
+                docs_from_col.sort(key=lambda x: x[0].metadata.get("page", 0))
+                results = docs_from_col[:6] # Take top 6 representative chunks
+        except Exception as e:
+            print(f"Fallback to semantic search due to get() error: {e}")
+            is_broad = False
+
+    # 2. Normal Semantic Search for specific facts (or fallback)
+    if not results:
+        results = vectorstore.similarity_search_with_score(
+            query,
+            k=k,
+            filter=filter_dict,
+        )
 
     context_parts = []
     sources = []
@@ -125,7 +158,6 @@ def retrieve(state: GraphState) -> dict:
         context_parts.append(f"[Chunk {i + 1}]:\n{doc.page_content}")
 
         # Chroma uses cosine distance (0=identical, 2=opposite).
-        # Normalize to a 0–1 relevance score: relevance = 1 - (distance / 2)
         relevance = max(0.0, min(1.0, round(1.0 - (distance / 2.0), 2)))
 
         # PyPDFLoader page metadata is 0-indexed; add 1 for display
@@ -136,7 +168,7 @@ def retrieve(state: GraphState) -> dict:
         sources.append({
             "page": page_num,
             "filename": doc.metadata.get("filename", "Unknown"),
-            "rel": f"{relevance:.2f}",
+            "rel": "BROAD" if is_broad else f"{relevance:.2f}",
             "text": doc.page_content.replace('\n', ' ').strip()[:150] + "...",
         })
 
@@ -190,8 +222,8 @@ Retrieved Context:
 {state['context']}
 
 Evaluate the context on three criteria:
-1. RELEVANCE — Does it directly address the search query (and the original question)?
-2. SUFFICIENCY — Does it contain enough detail for a complete, accurate answer?
+1. INTENT & RELEVANCE — What is the user actually asking? If they are asking for a broad document summary (e.g., "what is this document about", "summarize the pdf", "tell me details about this document"), any retrieved context that gives a general idea of the document's contents IS relevant and sufficient.
+2. SUFFICIENCY — Does the context contain enough detail for a helpful answer? For specific questions, demand specific facts. For broad/summary questions, a representative sample or high-level overview is SUFFICIENT. Do not demand the entire document.
 3. CONSISTENCY — Are there contradictions or gaps between chunks?
 
 Reply in this EXACT format (no extra lines, no preamble):
@@ -199,11 +231,10 @@ VERDICT: YES
 REASON: <one sentence>
 REFINED_QUERY: NONE
 
-OR if context is not good enough:
+OR if context is entirely irrelevant to the user's specific question:
 VERDICT: NO
-REASON: <one sentence explaining what is missing or wrong>
-REFINED_QUERY: <a better, more specific search query to find the missing information; \
-resolve any pronouns like 'it' or 'they' using the original question>"""
+REASON: <one sentence explaining what specific information is missing>
+REFINED_QUERY: <a better, more specific search query; resolve any pronouns>"""
 
     content = invoke_llm(llm, prompt)
     print(f"Grading Result:\n{content}", flush=True)
