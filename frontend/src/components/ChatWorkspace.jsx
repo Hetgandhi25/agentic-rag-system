@@ -157,9 +157,9 @@ export default function ChatWorkspace({
                     </div>
                   ) : (
                     <>
-                      <ReactMarkdown
-                        className="markdown-body"
-                        remarkPlugins={[remarkGfm]}
+                      <div className="markdown-body">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
                         components={{
                           table: ({node, ...props}) => (
                             <div className="table-wrapper" style={{ overflowX: 'auto', width: '100%', margin: '1em 0' }}>
@@ -212,6 +212,7 @@ export default function ChatWorkspace({
                       >
                         {msg.content}
                       </ReactMarkdown>
+                      </div>
 
                       {/* Show streaming indicator below partial content */}
                       {isStreamingThisMsg && msg.content && streamingStatus && (
