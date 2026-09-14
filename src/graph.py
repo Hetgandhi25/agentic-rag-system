@@ -1,8 +1,16 @@
 from langgraph.graph import StateGraph, END
 from src.state import GraphState
 from src.config import MAX_ITERATIONS
-from src.nodes import retrieve, grade_retrieval, rewrite_query, generate
+from src.nodes import retrieve, grade_retrieval, rewrite_query, generate, analyze_query, generate_conversational
 
+def route_after_analysis(state: GraphState) -> str:
+    """
+    Route based on the intent classified by analyze_query.
+    """
+    intent = state.get("intent", "DOC_SPECIFIC")
+    if intent in ["CONVERSATIONAL", "HISTORY"]:
+        return "generate_conversational"
+    return "retrieve"
 
 def should_continue(state: GraphState) -> str:
     """
@@ -54,13 +62,27 @@ def build_graph():
     """Builds and compiles the LangGraph workflow."""
     workflow = StateGraph(GraphState)
 
+    workflow.add_node("analyze_query", analyze_query)
+    workflow.add_node("generate_conversational", generate_conversational)
     workflow.add_node("retrieve", retrieve)
     workflow.add_node("grade_retrieval", grade_retrieval)
     workflow.add_node("increment_iterations", increment_iterations)
     workflow.add_node("rewrite_query", rewrite_query)
     workflow.add_node("generate", generate)
 
-    workflow.set_entry_point("retrieve")
+    workflow.set_entry_point("analyze_query")
+    
+    workflow.add_conditional_edges(
+        "analyze_query",
+        route_after_analysis,
+        {
+            "generate_conversational": "generate_conversational",
+            "retrieve": "retrieve"
+        }
+    )
+
+    workflow.add_edge("generate_conversational", END)
+    
     workflow.add_edge("retrieve", "grade_retrieval")
     workflow.add_conditional_edges(
         "grade_retrieval",

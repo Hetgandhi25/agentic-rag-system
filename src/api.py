@@ -385,7 +385,10 @@ def _stream_langgraph_to_queue(inputs: dict, event_queue: queue.Queue):
             for node, state_update in chunk.items():
                 final_state.update(state_update)
                 # Emit node-specific status events
-                if node == "retrieve":
+                if node == "analyze_query":
+                    intent = state_update.get("intent", "DOC_SPECIFIC")
+                    event_queue.put({"event": "status", "data": f"Classified intent: {intent}"})
+                elif node == "retrieve":
                     n_chunks = len(state_update.get("sources", []))
                     event_queue.put({"event": "status", "data": f"Retrieved {n_chunks} chunks from document"})
                 elif node == "grade_retrieval":
@@ -399,6 +402,8 @@ def _stream_langgraph_to_queue(inputs: dict, event_queue: queue.Queue):
                     event_queue.put({"event": "status", "data": f"Refining query: {refined[:80]}"})
                 elif node == "generate":
                     event_queue.put({"event": "status", "data": "Generating grounded answer..."})
+                elif node == "generate_conversational":
+                    event_queue.put({"event": "status", "data": "Generating conversational answer..."})
 
         event_queue.put({"event": "__done__", "data": final_state})
     except Exception as e:

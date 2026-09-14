@@ -16,3 +16,4 @@ class GraphState(TypedDict):
     reflection_log: List[str]      # Full history of every grading step
     chat_history: List[Tuple[str, str]] # Previous history for context
     metrics: dict                  # Timing metrics (retrieval_time, llm_time)
+    intent: str                    # Intent classification: CONVERSATIONAL, HISTORY, DOC_SUMMARY, DOC_SPECIFIC

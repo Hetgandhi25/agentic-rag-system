@@ -93,6 +93,79 @@ def extract_text(response) -> str:
 
 # ─── RAG Pipeline Nodes ───────────────────────────────────────────────────────
 
+def analyze_query(state: GraphState) -> dict:
+    """
+    Classify user intent to route properly:
+    - CONVERSATIONAL: "Hi", "How are you", "okay"
+    - HISTORY: "What did I just ask", "Summarize our chat"
+    - DOC_SUMMARY: "Tell me about this document"
+    - DOC_SPECIFIC: "What is the main architecture?" (Default)
+    """
+    print("\n--- [NODE: ANALYZE_QUERY] ---", flush=True)
+    start_time = time.time()
+    llm = get_llm()
+    query = state["question"]
+    
+    prompt = f"""Classify the user's input into exactly one of these four categories:
+1. CONVERSATIONAL: Simple greetings, pleasantries, or acknowledgments (e.g., "hi", "hello", "thanks", "okay").
+2. HISTORY: Questions specifically asking about previous messages in this chat (e.g., "what was my last question?", "summarize our conversation").
+3. DOC_SUMMARY: Requests for a broad overview or summary of the uploaded document (e.g., "tell me about this document", "summarize the pdf").
+4. DOC_SPECIFIC: Questions asking for facts, details, or specific information that should be searched for in the document.
+
+User Input: "{query}"
+
+Reply with ONLY ONE word (CONVERSATIONAL, HISTORY, DOC_SUMMARY, or DOC_SPECIFIC):"""
+    
+    intent = invoke_llm(llm, prompt).strip().upper()
+    valid_intents = ["CONVERSATIONAL", "HISTORY", "DOC_SUMMARY", "DOC_SPECIFIC"]
+    
+    # Clean up any extra text from the LLM
+    found_intent = "DOC_SPECIFIC"
+    for v in valid_intents:
+        if v in intent:
+            found_intent = v
+            break
+
+    print(f"Intent classified as: {found_intent}", flush=True)
+    
+    metrics = state.get("metrics", {})
+    metrics["llm_time"] = metrics.get("llm_time", 0.0) + (time.time() - start_time)
+    
+    return {"intent": found_intent, "metrics": metrics}
+
+def generate_conversational(state: GraphState, config: RunnableConfig = None) -> dict:
+    """
+    Handle CONVERSATIONAL and HISTORY intents without using document retrieval.
+    """
+    print("\n--- [NODE: GENERATE_CONVERSATIONAL] ---", flush=True)
+    start_time = time.time()
+    llm = get_llm()
+    
+    history_str = ""
+    chat_history = state.get("chat_history", [])
+    if chat_history:
+        history_lines = []
+        for q, a in chat_history[-5:]: # Include more history for history questions
+            history_lines.append(f"User: {q}\nAssistant: {a}")
+        history_str = "\n\nPrevious Conversation History:\n" + "\n---\n".join(history_lines) + "\n"
+
+    prompt = f"""You are a helpful, conversational AI assistant. 
+Answer the user's input naturally based on the conversation history if necessary. 
+Do NOT hallucinate information about documents if you haven't been provided any.
+
+{history_str}
+User Input: {state['question']}
+
+Answer:"""
+
+    answer = invoke_llm(llm, prompt, config=config)
+    
+    metrics = state.get("metrics", {})
+    metrics["llm_time"] = metrics.get("llm_time", 0.0) + (time.time() - start_time)
+    
+    # Return empty sources since no retrieval happened
+    return {"answer": answer, "metrics": metrics, "sources": []}
+
 def retrieve(state: GraphState) -> dict:
     """
     Retrieve top-k chunks using the current query and document_id filter.
@@ -112,15 +185,10 @@ def retrieve(state: GraphState) -> dict:
     vectorstore = get_vectorstore()
     filter_dict = {"document_id": doc_id} if doc_id else None
     
-    # 1. Quick intent classification on first iteration
-    is_broad = False
-    if iteration == 0 and not state.get("refined_query"):
-        intent_prompt = f"Is this question asking for a broad summary/overview of the entire document, or asking for specific details/facts?\nQuestion: '{query}'\nReply ONLY with 'BROAD' or 'SPECIFIC'."
-        llm = get_llm()
-        intent = invoke_llm(llm, intent_prompt).strip().upper()
-        if "BROAD" in intent:
-            is_broad = True
-            print("Detected BROAD summary request. Retrieving representative chunks.", flush=True)
+    intent = state.get("intent", "DOC_SPECIFIC")
+    is_broad = (intent == "DOC_SUMMARY")
+    if is_broad:
+        print("Detected DOC_SUMMARY intent. Retrieving representative chunks.", flush=True)
 
     results = []
     
@@ -218,13 +286,14 @@ taking into account the conversation history.
 {history_str}
 Original Question: {state['question']}
 Search Query Used: {active_query}
+Classified Intent: {state.get("intent", "DOC_SPECIFIC")}
 
 Retrieved Context:
 {state['context']}
 
 Evaluate the context on three criteria:
-1. INTENT & RELEVANCE — What is the user actually asking? If they are asking for a broad document summary (e.g., "what is this document about", "summarize the pdf", "tell me details about this document"), any retrieved context that gives a general idea of the document's contents IS relevant and sufficient.
-2. SUFFICIENCY — Does the context contain enough detail for a helpful answer? For specific questions, demand specific facts. For broad/summary questions, a representative sample or high-level overview is SUFFICIENT. Do not demand the entire document.
+1. INTENT & RELEVANCE — Does it satisfy the Classified Intent? If the intent is DOC_SUMMARY, any retrieved context that gives a general idea of the document's contents IS relevant and sufficient.
+2. SUFFICIENCY — Does the context contain enough detail for a helpful answer? For specific questions (DOC_SPECIFIC), demand specific facts. For DOC_SUMMARY, a representative sample or high-level overview is SUFFICIENT.
 3. CONSISTENCY — Are there contradictions or gaps between chunks?
 
 Reply in this EXACT format (no extra lines, no preamble):
