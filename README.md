@@ -123,16 +123,36 @@ agentic_rag_system/
    ```bash
    cd frontend
    npm install
+   cd ..
+   ```
+
+### Option A: Production Mode (Single Terminal)
+In this mode, FastAPI serves the optimized React build directly.
+1. Build the frontend:
+   ```bash
+   cd frontend
    npm run build
    cd ..
    ```
-   *Note: FastAPI serves the frontend directly from `frontend/dist` in production mode.*
-
-4. **Start the Application:**
+2. Start the backend:
    ```bash
    python run.py
    ```
-   This will launch the backend server on `http://0.0.0.0:8000`. Open your browser and navigate to `http://localhost:8000` to start using the app.
+3. Open your browser to `http://localhost:8000`.
+
+### Option B: Development Mode (Two Terminals)
+Use this mode if you want to actively edit the React code and see live updates.
+1. **Terminal 1 (Backend):**
+   ```bash
+   source venv/bin/activate  # Or venv\Scripts\activate on Windows
+   python run.py
+   ```
+2. **Terminal 2 (Frontend):**
+   ```bash
+   cd frontend
+   npm run dev
+   ```
+3. Open your browser to the URL Vite gives you (usually `http://localhost:5173`). *(Note: The backend must be running in Terminal 1 for API requests and uploads to work!)*
 
 ## Future Improvements
 - **Hybrid Search**: Combine vector search with keyword search (e.g., BM25) for better retrieval.
